@@ -1,11 +1,36 @@
-# Nyquest for Claude Code
+<div align="center">
 
-**Keeps large tool results out of Claude's context.** Claude Code re-sends the whole
-conversation on every turn, so a 10,000-token test log is paid for again on every later
-turn. This plugin parks results like that on disk, leaves Claude an exact-line digest
-(head, every error and warning line, counts, tail), and gives Claude a `recall` tool to
-pull back precise slices when it needs them. Nothing is rewritten; the original is one
-call away, and it survives context compaction.
+<img src="assets/logo.png" alt="Nyquest" width="160" style="border-radius:24px;margin-bottom:1rem;" />
+
+# nyquest<span>.ai</span> for Claude Code
+
+### Context Manager plugin: keep large tool results out of Claude's context
+
+[![Version](https://img.shields.io/badge/version-0.2.4-4fd1c5?style=flat-square&logoColor=0a0b0e)](.claude-plugin/plugin.json)
+[![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-4fd1c5?style=flat-square&logoColor=0a0b0e)](https://code.claude.com/docs/en/plugins)
+[![MCP](https://img.shields.io/badge/MCP-server-4fd1c5?style=flat-square&logoColor=0a0b0e)](https://modelcontextprotocol.io)
+[![Measured](https://img.shields.io/badge/cost-%E2%88%9257%25%20on%20a%2013--turn%20session-4fd1c5?style=flat-square&logoColor=0a0b0e)](#what-it-does)
+[![License](https://img.shields.io/badge/License-MIT-c084fc?style=flat-square)](LICENSE)
+[![Site](https://img.shields.io/badge/nyquest.ai-live-4fd1c5?style=flat-square)](https://nyquest.ai)
+
+**Claude keeps working. The context stops growing.**
+
+[**→ nyquest.ai**](https://nyquest.ai) &nbsp;·&nbsp; [**Install**](#install) &nbsp;·&nbsp; [**How it works**](#what-it-does) &nbsp;·&nbsp; [**Docs**](https://docs.nyquest.ai)
+
+<br />
+
+| 📉 −78% cache writes | 🧠 −52% final context | 💵 −57% cost | ✅ identical output | 🔒 local by default |
+|:---:|:---:|:---:|:---:|:---:|
+
+</div>
+
+---
+
+Claude Code re-sends the whole conversation on every turn, so a 10,000-token test log is
+paid for again on every later turn. This plugin parks results like that on disk, leaves
+Claude an exact-line digest (head, every error and warning line, counts, tail), and gives
+Claude a `recall` tool to pull back precise slices when it needs them. Nothing is rewritten;
+the original is one call away, and it survives context compaction.
 
 Measured, not simulated (Phase 3, 2026-09-13): on a 13-turn session auditing twelve 12–14 KB
 logs, the plugin cut cache writes 78%, total context read 40%, final-turn context 52%
