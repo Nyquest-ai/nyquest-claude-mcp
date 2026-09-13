@@ -96,7 +96,11 @@ export async function handlePostToolUse(input: HookInput, cfg: Config): Promise<
   // Claude Code already persists Bash output above ~30 KB to a file and shows the
   // model a ~2 KB preview; the hook receives the 30,000-char truncation. Nothing
   // to gain there, and replacing the preview would only hide the saved-file path.
-  if (ex.text.includes("<persisted-output>") || (tool === "Bash" && ex.text.length >= 30_000)) {
+  // Learned from real responses (shapes.json): a persisted Bash result carries
+  // persistedOutputPath / persistedOutputSize. The length check stays as a fallback.
+  const resp = input.tool_response as Record<string, unknown> | null;
+  const persisted = !!(resp && typeof resp === "object" && (resp.persistedOutputPath || resp.persistedOutputSize));
+  if (persisted || ex.text.includes("<persisted-output>") || (tool === "Bash" && ex.text.length >= 30_000)) {
     recordSkip(session, "already-persisted-by-claude-code");
     return undefined;
   }
