@@ -1,0 +1,28 @@
+{
+  "description": "Nyquest Context Manager: park large tool results with an exact-line digest; status line at session start.",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash|PowerShell|WebFetch|WebSearch|Agent|Task|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/server/dist/hook.js\"",
+            "timeout": 25
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/server/dist/hook.js\" --session-start",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
