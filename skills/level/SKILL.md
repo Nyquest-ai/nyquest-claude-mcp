@@ -15,4 +15,5 @@ the current settings and explain the scale:
 - 0.8: results over ~750 tokens, code listings parked with a definition index
 - 1.0: results over ~500 tokens, everything eligible
 
-Report the resulting setting in one line.
+Report the resulting setting in one line. If the user asks about the API key or full mode
+instead, that is `/nyquest:setup`.

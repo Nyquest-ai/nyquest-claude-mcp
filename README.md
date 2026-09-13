@@ -67,19 +67,47 @@ The built `server/dist` is committed so installs need no build step; rebuild bef
 
 Never parked: Read, Edit, Write, Grep, Glob. Read stays exact because Edit depends on it.
 
-## The slider
+## Configure
 
-`/nyquest:level 0.5` or `configure(level=0.5)`.
+There is no settings screen. Everything is set from inside a Claude Code session, and every
+setting persists in `~/.nyquest/config.json`. The line Nyquest prints at the start of each
+session shows the current mode and level.
+
+### Level: how aggressively results are parked
+
+Type `/nyquest:level 0.8`, or just tell Claude "set the Nyquest level to 0.8". Run
+`/nyquest:level` with no value to see the current setting. Changes apply from the next tool call.
 
 | Level | Parks results over | Notes |
 |---|---|---|
 | 0 | never | off |
 | 0.3 | ~4,000 tokens | deterministic digests only |
-| 0.5 | ~1,500 tokens | default; code listings untouched |
+| 0.5 | ~1,500 tokens | default; code listings untouched; prose only above ~3,000 tokens |
 | 0.8 | ~750 tokens | code listings parked with a definition index |
 | 1.0 | ~500 tokens | everything eligible |
 
-Kill switch without uninstalling: `NYQUEST_COMPRESS=off`.
+Emergency off switch without uninstalling: set `NYQUEST_COMPRESS=off` in your environment,
+or say "turn Nyquest off" (which calls `configure(enabled=false)`).
+
+### API key: turn on full mode
+
+Full mode is free and optional. It adds platform condensation for prose results,
+`recall(ask="...")` answers, `digest_url`, and account-level savings totals.
+
+1. Sign in at [app.nyquest.ai](https://app.nyquest.ai) and create an API key. It starts with `nq-v1-`.
+2. In Claude Code run `/nyquest:setup` and paste the key when asked, or say
+   "set my Nyquest API key to nq-v1-…". The next session-start line reads **full mode**.
+3. To leave full mode, say "remove my Nyquest API key".
+
+Prefer not to paste a key into a chat transcript? Either of these works without the chat:
+
+- environment variable: `NYQUEST_API_KEY=nq-v1-...`
+- config file: add `"apiKey": "nq-v1-..."` to `~/.nyquest/config.json`
+
+### Check the state
+
+`/nyquest:savings` shows mode, level, what has been parked and recalled this session, and in
+full mode your account totals. `list_parked` lists the parked results.
 
 ## Modes
 
@@ -88,8 +116,7 @@ Kill switch without uninstalling: `NYQUEST_COMPRESS=off`.
 - **Full** (Nyquest API key, free): prose results (web pages, agent reports, docs) get
   semantic condensation on the Nyquest platform, `recall(ask="...")` answers a question
   over a parked output so only the answer enters Claude's context, `digest_url` fetches
-  and condenses a page, and `savings` shows your account totals. Enable with
-  `configure(apiKey="nq-v1-...")` (keys are free at app.nyquest.ai). Text is redacted for
+  and condenses a page, and `savings` shows your account totals. Text is redacted for
   secrets before it leaves the machine; Nyquest stores counts only, never content. Per-user
   cap of 400 platform calls a day; local mode keeps working when the cap or network is out.
 

@@ -21967,7 +21967,7 @@ function parseRange(r, n) {
   const b = m[2] ? Math.min(n, parseInt(m[2], 10)) : Math.min(n, a + 199);
   return a <= b ? [a, b] : void 0;
 }
-var server = new McpServer({ name: "nyquest", version: "0.2.4" });
+var server = new McpServer({ name: "nyquest", version: "0.2.5" });
 var reg = server.registerTool.bind(server);
 reg(
   "recall",

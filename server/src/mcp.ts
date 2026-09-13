@@ -30,7 +30,7 @@ function parseRange(r: string, n: number): [number, number] | undefined {
   return a <= b ? [a, b] : undefined;
 }
 
-const server = new McpServer({ name: "nyquest", version: "0.2.4" });
+const server = new McpServer({ name: "nyquest", version: "0.2.5" });
 
 // The SDK's registerTool generics trip TS2589 ("excessively deep") with zod 3.25 on
 // schemas with several optional fields. Handlers below are explicitly typed, so a
