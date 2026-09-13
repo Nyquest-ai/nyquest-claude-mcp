@@ -1,5 +1,6 @@
+# server/dist is committed on purpose: the plugin runs from the repo as installed,
+# with no build step on the user's machine. Rebuild with `npm run build` before committing.
 node_modules/
-server/dist/
 server/test/tmp/
 *.log
 .DS_Store
