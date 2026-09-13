@@ -14,14 +14,21 @@ recalls. On five short tasks it saved 35% with 10/10 correctness. The plugin's t
 tool output between about 6 KB and 30 KB: below that nothing is parked, above it Claude Code
 already saves the output to a file itself.
 
-## Install (development)
+## Install
 
-```bash
-cd server && npm install && npm run build
-claude --plugin-dir /path/to/nyquest-claude-mcp
+In Claude Code:
+
+```
+/plugin marketplace add Nyquest-ai/nyquest-claude-marketplace
+/plugin install nyquest@nyquest
 ```
 
-Marketplace install arrives with the first release.
+Or from a shell: `claude plugin marketplace add Nyquest-ai/nyquest-claude-marketplace` then
+`claude plugin install nyquest@nyquest`. Requires Node 18+ on your PATH. No account needed
+for local mode; see Modes below for full mode.
+
+Development: `cd server && npm install && npm run build`, then `claude --plugin-dir /path/to/nyquest-claude-mcp`.
+The built `server/dist` is committed so installs need no build step; rebuild before committing.
 
 ## What it does
 
