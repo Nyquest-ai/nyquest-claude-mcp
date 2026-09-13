@@ -7,9 +7,12 @@ turn. This plugin parks results like that on disk, leaves Claude an exact-line d
 pull back precise slices when it needs them. Nothing is rewritten; the original is one
 call away, and it survives context compaction.
 
-Measured on real sessions before building: 10% of tool results held 49% of tool-result
-bytes, and parking them cut the cumulative context re-read across turns by about 42%
-(simulated). Real numbers are being measured with `/cost`.
+Measured, not simulated (Phase 3, 2026-09-13): on a 13-turn session auditing twelve 12–14 KB
+logs, the plugin cut cache writes 78%, total context read 40%, final-turn context 52%
+(138k → 66k tokens) and cost 57% at list prices, with identical, fully correct output and no
+recalls. On five short tasks it saved 35% with 10/10 correctness. The plugin's territory is
+tool output between about 6 KB and 30 KB: below that nothing is parked, above it Claude Code
+already saves the output to a file itself.
 
 ## Install (development)
 
