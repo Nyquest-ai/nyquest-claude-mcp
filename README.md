@@ -109,6 +109,11 @@ Prefer not to paste a key into a chat transcript? Either of these works without 
 `/nyquest:savings` shows mode, level, what has been parked and recalled this session, and in
 full mode your account totals. `list_parked` lists the parked results.
 
+In full mode the plugin also reports each park to your account as counts only (tool, content
+class, sizes; never the content), so [app.nyquest.ai/savings](https://app.nyquest.ai/savings)
+shows what the plugin kept out of Claude's context across all your machines, and the level
+slider under Settings → Claude Code plugin stays in step with `/nyquest:level` (last change wins).
+
 ## Modes
 
 - **Local** (default, no account): all digests are deterministic and everything stays on

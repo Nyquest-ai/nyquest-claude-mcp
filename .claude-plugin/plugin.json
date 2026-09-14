@@ -1,6 +1,6 @@
 {
   "name": "nyquest",
-  "version": "0.2.7",
+  "version": "0.3.0",
   "description": "Nyquest Context Manager: keeps large tool results out of Claude's context. Parks them locally, leaves an exact-line digest, and lets Claude recall precise slices on demand.",
   "author": { "name": "Nyquest", "url": "https://nyquest.ai" },
   "homepage": "https://github.com/Nyquest-ai/nyquest-claude-mcp#readme",

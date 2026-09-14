@@ -346,6 +346,13 @@ function loadConfig() {
   cfg.level = clamp01(cfg.level);
   return cfg;
 }
+function saveConfig(cfg) {
+  fs.mkdirSync(nyquestHome(), { recursive: true });
+  const { apiKey, ...rest } = cfg;
+  const out = { ...rest };
+  if (apiKey) out.apiKey = apiKey;
+  fs.writeFileSync(configPath(), JSON.stringify(out, null, 2));
+}
 function clamp01(n) {
   if (!Number.isFinite(n)) return DEFAULTS.level;
   return Math.max(0, Math.min(1, n));
@@ -579,6 +586,61 @@ async function condense(text, kind, cfg = loadConfig(), timeoutMs = 15e3) {
   if (!r || typeof r.digest !== "string" || !r.digest.trim()) return void 0;
   return r;
 }
+async function reportParks(events, cfg = loadConfig(), timeoutMs = 2500) {
+  if (!events.length) return 0;
+  const r = await post(cfg, "/v1/plugin/events", { events: events.slice(0, 50) }, timeoutMs);
+  return r && typeof r.accepted === "number" ? r.accepted : 0;
+}
+async function getSettings(cfg = loadConfig(), timeoutMs = 4e3) {
+  if (!fullMode(cfg)) return void 0;
+  const base = (cfg.apiBase || process.env.NYQUEST_API_BASE || DEFAULT_BASE).replace(/\/$/, "");
+  try {
+    const r = await fetch(`${base}/user/plugin/settings`, { headers: { authorization: `Bearer ${cfg.apiKey}` }, signal: AbortSignal.timeout(timeoutMs) });
+    if (!r.ok) return void 0;
+    const j = await r.json();
+    return { level: typeof j.level === "number" ? j.level : null, updated_at: typeof j.updated_at === "string" ? j.updated_at : null };
+  } catch {
+    return void 0;
+  }
+}
+async function putSettings(level, cfg = loadConfig(), timeoutMs = 4e3) {
+  const base = (cfg.apiBase || process.env.NYQUEST_API_BASE || DEFAULT_BASE).replace(/\/$/, "");
+  if (!fullMode(cfg)) return void 0;
+  try {
+    const r = await fetch(`${base}/user/plugin/settings`, {
+      method: "PUT",
+      headers: { "content-type": "application/json", authorization: `Bearer ${cfg.apiKey}` },
+      body: JSON.stringify({ level }),
+      signal: AbortSignal.timeout(timeoutMs)
+    });
+    if (!r.ok) return void 0;
+    return await r.json();
+  } catch {
+    return void 0;
+  }
+}
+
+// src/sync.ts
+async function syncLevel(cfg = loadConfig()) {
+  if (!fullMode(cfg)) return { action: "skipped", level: cfg.level };
+  const remote = await getSettings(cfg);
+  if (!remote) return { action: "skipped", level: cfg.level };
+  const localAt = cfg.levelUpdatedAt ? Date.parse(cfg.levelUpdatedAt) : 0;
+  const remoteAt = remote.updated_at ? Date.parse(remote.updated_at) : 0;
+  if (remote.level === null) {
+    const r2 = await putSettings(cfg.level, cfg);
+    return { action: r2 ? "pushed" : "skipped", level: cfg.level };
+  }
+  if (Math.abs(remote.level - cfg.level) < 5e-3) return { action: "same", level: cfg.level };
+  if (remoteAt >= localAt) {
+    cfg.level = clamp01(remote.level);
+    cfg.levelUpdatedAt = remote.updated_at || (/* @__PURE__ */ new Date()).toISOString();
+    saveConfig(cfg);
+    return { action: "pulled", level: cfg.level };
+  }
+  const r = await putSettings(cfg.level, cfg);
+  return { action: r ? "pushed" : "skipped", level: cfg.level };
+}
 
 // src/hook.ts
 function log(line) {
@@ -689,6 +751,9 @@ async function handlePostToolUse(input, cfg) {
   const entry = park(session, ex.text, { tool, command, cls, digestChars: digest.length });
   const body = digest + "\n" + footer(entry.id, lines, ex.text.length);
   recordPark(session, { id: entry.id, tool, cls, chars: ex.text.length, digestChars: body.length });
+  if (fullMode(cfg)) {
+    await reportParks([{ tool, kind: cls, method, chars_in: ex.text.length, chars_out: body.length, tokens_in: estimateTokens(ex.text.length), tokens_out: estimateTokens(body.length) }], cfg);
+  }
   const saved = estimateTokens(ex.text.length) - estimateTokens(body.length);
   const out = {
     hookSpecificOutput: { hookEventName: "PostToolUse", updatedToolOutput: ex.rebuild(body) }
@@ -700,16 +765,25 @@ async function handlePostToolUse(input, cfg) {
   log(`park ${entry.id} tool=${tool} cls=${cls} method=${method} chars=${ex.text.length} digest=${body.length} session=${session}`);
   return out;
 }
-function sessionStart(input, cfg) {
+async function sessionStart(input, cfg) {
   const removed = purgeOld(cfg.retentionDays);
   const size = storeSize();
-  const mode = cfg.apiKey ? "full" : "local";
+  const mode = fullMode(cfg) ? "full" : "local";
+  let synced = "";
+  try {
+    const s2 = await syncLevel(cfg);
+    if (s2.action === "pulled") {
+      cfg.level = s2.level;
+      synced = ` Level ${s2.level} pulled from your Nyquest account settings.`;
+    } else if (s2.action === "pushed") synced = " Level published to your Nyquest account settings.";
+  } catch {
+  }
   const l = loadLedger(input.session_id || "unknown");
   const s = summarize(l);
   const prior = s.parks ? ` This session so far: ${s.parks} parked, ${s.recalls} recalls.` : "";
   if (!cfg.enabled) return `Nyquest context manager: OFF (NYQUEST_COMPRESS=off or disabled in ~/.nyquest/config.json). Say "turn Nyquest on" to re-enable.`;
   const hint = mode === "local" ? " Full mode (free, adds platform condensation and recall(ask=...)): /nyquest:setup." : "";
-  return `Nyquest context manager: ${mode} mode, level ${cfg.level} (/nyquest:level to change), results over ~${fmt(estimateTokens(thresholdFor(cfg.level)))} tokens are parked with a digest; use the nyquest recall tool for exact text. Store: ${size.sessions} sessions, ${fmt(Math.round(size.bytes / 1024))} KB${removed ? `, purged ${removed} old` : ""}.${prior}${hint}`;
+  return `Nyquest context manager: ${mode} mode, level ${cfg.level} (/nyquest:level to change), results over ~${fmt(estimateTokens(thresholdFor(cfg.level)))} tokens are parked with a digest; use the nyquest recall tool for exact text. Store: ${size.sessions} sessions, ${fmt(Math.round(size.bytes / 1024))} KB${removed ? `, purged ${removed} old` : ""}.${prior}${synced}${hint}`;
 }
 async function main() {
   const chunks = [];
@@ -723,7 +797,7 @@ async function main() {
   }
   const cfg = loadConfig();
   if (process.argv.includes("--session-start") || input.hook_event_name === "SessionStart") {
-    const line = sessionStart(input, cfg);
+    const line = await sessionStart(input, cfg);
     process.stdout.write(JSON.stringify({
       systemMessage: line,
       hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: line }

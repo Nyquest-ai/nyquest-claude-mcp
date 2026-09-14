@@ -9,7 +9,8 @@ import { makeDigest, footer } from "./digest";
 import { park, purgeOld, storeSize } from "./store";
 import { recordPark, recordSkip, loadLedger, summarize } from "./ledger";
 import { estimateTokens, fmt } from "./tokens";
-import { fullMode, condense } from "./api";
+import { fullMode, condense, reportParks } from "./api";
+import { syncLevel } from "./sync";
 
 interface HookInput {
   session_id?: string;
@@ -127,6 +128,11 @@ export async function handlePostToolUse(input: HookInput, cfg: Config): Promise<
   const entry = park(session, ex.text, { tool, command, cls, digestChars: digest.length });
   const body = digest + "\n" + footer(entry.id, lines, ex.text.length);
   recordPark(session, { id: entry.id, tool, cls, chars: ex.text.length, digestChars: body.length });
+  // Full mode: tell the account about this park (counts only, never content) so the
+  // website's savings page reflects local-mode savings too. Bounded and fail-open.
+  if (fullMode(cfg)) {
+    await reportParks([{ tool, kind: cls, method, chars_in: ex.text.length, chars_out: body.length, tokens_in: estimateTokens(ex.text.length), tokens_out: estimateTokens(body.length) }], cfg);
+  }
 
   const saved = estimateTokens(ex.text.length) - estimateTokens(body.length);
   const out: Record<string, unknown> = {
@@ -142,16 +148,23 @@ export async function handlePostToolUse(input: HookInput, cfg: Config): Promise<
   return out;
 }
 
-function sessionStart(input: HookInput, cfg: Config): string {
+async function sessionStart(input: HookInput, cfg: Config): Promise<string> {
   const removed = purgeOld(cfg.retentionDays);
   const size = storeSize();
-  const mode = cfg.apiKey ? "full" : "local";
+  const mode = fullMode(cfg) ? "full" : "local";
+  // Full mode: reconcile the slider with the website (last writer wins). Bounded, fail-open.
+  let synced = "";
+  try {
+    const s = await syncLevel(cfg);
+    if (s.action === "pulled") { cfg.level = s.level; synced = ` Level ${s.level} pulled from your Nyquest account settings.`; }
+    else if (s.action === "pushed") synced = " Level published to your Nyquest account settings.";
+  } catch { /* offline or no key */ }
   const l = loadLedger(input.session_id || "unknown");
   const s = summarize(l);
   const prior = s.parks ? ` This session so far: ${s.parks} parked, ${s.recalls} recalls.` : "";
   if (!cfg.enabled) return `Nyquest context manager: OFF (NYQUEST_COMPRESS=off or disabled in ~/.nyquest/config.json). Say "turn Nyquest on" to re-enable.`;
   const hint = mode === "local" ? " Full mode (free, adds platform condensation and recall(ask=...)): /nyquest:setup." : "";
-  return `Nyquest context manager: ${mode} mode, level ${cfg.level} (/nyquest:level to change), results over ~${fmt(estimateTokens(thresholdFor(cfg.level)))} tokens are parked with a digest; use the nyquest recall tool for exact text. Store: ${size.sessions} sessions, ${fmt(Math.round(size.bytes / 1024))} KB${removed ? `, purged ${removed} old` : ""}.${prior}${hint}`;
+  return `Nyquest context manager: ${mode} mode, level ${cfg.level} (/nyquest:level to change), results over ~${fmt(estimateTokens(thresholdFor(cfg.level)))} tokens are parked with a digest; use the nyquest recall tool for exact text. Store: ${size.sessions} sessions, ${fmt(Math.round(size.bytes / 1024))} KB${removed ? `, purged ${removed} old` : ""}.${prior}${synced}${hint}`;
 }
 
 async function main(): Promise<void> {
@@ -163,7 +176,7 @@ async function main(): Promise<void> {
   const cfg = loadConfig();
   if (process.argv.includes("--session-start") || input.hook_event_name === "SessionStart") {
     // Both audiences: additionalContext for Claude, systemMessage for the user's screen.
-    const line = sessionStart(input, cfg);
+    const line = await sessionStart(input, cfg);
     process.stdout.write(JSON.stringify({
       systemMessage: line,
       hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: line },

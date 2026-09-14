@@ -10,7 +10,7 @@ import { loadLedger, summarize, recordRecall, recordPark } from "./ledger";
 import { makeDigest, footer } from "./digest";
 import { estimateTokens, fmt } from "./tokens";
 import type { ContentClass } from "./classify";
-import { fullMode, ask as apiAsk, condense as apiCondense, accountSavings } from "./api";
+import { fullMode, ask as apiAsk, condense as apiCondense, accountSavings, putSettings } from "./api";
 
 /** Session id: from the environment when Claude Code provides one, else the most recently active parked session. Resolved per call, since sessions start after this process. */
 function sessionId(): string {
@@ -30,7 +30,7 @@ function parseRange(r: string, n: number): [number, number] | undefined {
   return a <= b ? [a, b] : undefined;
 }
 
-const server = new McpServer({ name: "nyquest", version: "0.2.7" });
+const server = new McpServer({ name: "nyquest", version: "0.3.0" });
 
 // The SDK's registerTool generics trip TS2589 ("excessively deep") with zod 3.25 on
 // schemas with several optional fields. Handlers below are explicitly typed, so a
@@ -218,7 +218,7 @@ reg(
     if (fullMode(cfg)) {
       const a = await accountSavings(cfg, 30);
       lines.push(a
-        ? `Nyquest account (30 days): ${a.condense_calls} condensations, ${a.ask_calls} asks, ~${fmt(Number(a.tokens_in))} tokens read on the platform, ~${fmt(Number(a.tokens_kept_out))} kept out of Claude's context; daily cap ${a.daily_cap}.`
+        ? `Nyquest account (30 days, all your machines): ${fmt(Number(a.parks || 0))} results parked (~${fmt(Number(a.park_tokens_kept_out || 0))} tokens kept out), ${a.condense_calls} condensations, ${a.ask_calls} asks (~${fmt(Number(a.tokens_kept_out))} tokens kept out); total ~${fmt(Number(a.total_tokens_kept_out ?? a.tokens_kept_out))} tokens. See app.nyquest.ai/savings. Daily platform cap ${a.daily_cap}.`
         : "Nyquest account savings: unavailable right now.");
     }
     return text(lines.filter(Boolean).join("\n"));
@@ -240,13 +240,19 @@ reg(
   },
   async ({ level, enabled, showSavings, tool, toolEnabled, apiKey }: { level?: number; enabled?: boolean; showSavings?: boolean; tool?: string; toolEnabled?: boolean; apiKey?: string }) => {
     const cfg = loadConfig();
-    if (level !== undefined) cfg.level = clamp01(level);
+    if (level !== undefined) { cfg.level = clamp01(level); cfg.levelUpdatedAt = new Date().toISOString(); }
     if (enabled !== undefined) cfg.enabled = enabled;
     if (showSavings !== undefined) cfg.showSavings = showSavings;
     if (tool) cfg.tools[tool] = toolEnabled ?? true;
     if (apiKey !== undefined) { if (apiKey) cfg.apiKey = apiKey; else delete cfg.apiKey; }
     saveConfig(cfg);
-    return text(`Nyquest: enabled=${cfg.enabled}, level=${cfg.level} (park results over ~${fmt(estimateTokens(thresholdFor(cfg.level)))} tokens), showSavings=${cfg.showSavings}, mode=${cfg.apiKey ? "full" : "local"}, tool overrides=${JSON.stringify(cfg.tools)}. Hook changes apply to the next tool call.`);
+    // Keep the website's Settings → Claude Code slider in step (full mode only, fail-open).
+    let synced = "";
+    if (level !== undefined && fullMode(cfg)) {
+      const r = await putSettings(cfg.level, cfg);
+      synced = r ? " Level saved to your Nyquest account too." : " (Could not reach Nyquest to sync the level; it will sync at the next session start.)";
+    }
+    return text(`Nyquest: enabled=${cfg.enabled}, level=${cfg.level} (park results over ~${fmt(estimateTokens(thresholdFor(cfg.level)))} tokens), showSavings=${cfg.showSavings}, mode=${fullMode(cfg) ? "full" : "local"}, tool overrides=${JSON.stringify(cfg.tools)}. Hook changes apply to the next tool call.${synced}`);
   },
 );
 

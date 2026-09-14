@@ -68,6 +68,58 @@ export async function ask(text: string, question: string, cfg: Config = loadConf
   return r;
 }
 
+export interface ParkEvent {
+  tool: string;
+  kind: string;
+  method: string;
+  chars_in: number;
+  chars_out: number;
+  tokens_in: number;
+  tokens_out: number;
+}
+
+/** Report park events (counts only, never content) so the account page can show real savings. */
+export async function reportParks(events: ParkEvent[], cfg: Config = loadConfig(), timeoutMs = 2500): Promise<number> {
+  if (!events.length) return 0;
+  const r = await post<{ accepted?: number }>(cfg, "/v1/plugin/events", { events: events.slice(0, 50) }, timeoutMs);
+  return r && typeof r.accepted === "number" ? r.accepted : 0;
+}
+
+export interface RemoteSettings {
+  level: number | null;
+  updated_at: string | null;
+}
+
+export async function getSettings(cfg: Config = loadConfig(), timeoutMs = 4000): Promise<RemoteSettings | undefined> {
+  if (!fullMode(cfg)) return undefined;
+  const base = (cfg.apiBase || process.env.NYQUEST_API_BASE || DEFAULT_BASE).replace(/\/$/, "");
+  try {
+    const r = await fetch(`${base}/user/plugin/settings`, { headers: { authorization: `Bearer ${cfg.apiKey}` }, signal: AbortSignal.timeout(timeoutMs) });
+    if (!r.ok) return undefined;
+    const j = (await r.json()) as RemoteSettings;
+    return { level: typeof j.level === "number" ? j.level : null, updated_at: typeof j.updated_at === "string" ? j.updated_at : null };
+  } catch {
+    return undefined;
+  }
+}
+
+export async function putSettings(level: number, cfg: Config = loadConfig(), timeoutMs = 4000): Promise<RemoteSettings | undefined> {
+  const base = (cfg.apiBase || process.env.NYQUEST_API_BASE || DEFAULT_BASE).replace(/\/$/, "");
+  if (!fullMode(cfg)) return undefined;
+  try {
+    const r = await fetch(`${base}/user/plugin/settings`, {
+      method: "PUT",
+      headers: { "content-type": "application/json", authorization: `Bearer ${cfg.apiKey}` },
+      body: JSON.stringify({ level }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!r.ok) return undefined;
+    return (await r.json()) as RemoteSettings;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function accountSavings(cfg: Config = loadConfig(), days = 30): Promise<Record<string, unknown> | undefined> {
   if (!fullMode(cfg)) return undefined;
   const base = (cfg.apiBase || process.env.NYQUEST_API_BASE || DEFAULT_BASE).replace(/\/$/, "");

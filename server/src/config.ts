@@ -13,6 +13,8 @@ export interface Config {
   tools: Record<string, boolean>;
   apiKey?: string;
   apiBase?: string;
+  /** ISO time the level was last changed here; used for last-writer-wins sync with the website. */
+  levelUpdatedAt?: string;
 }
 
 export const DEFAULTS: Config = {

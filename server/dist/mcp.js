@@ -21940,6 +21940,22 @@ async function ask(text2, question, cfg = loadConfig(), timeoutMs = 2e4) {
   if (!r || typeof r.answer !== "string" || !r.answer.trim()) return void 0;
   return r;
 }
+async function putSettings(level, cfg = loadConfig(), timeoutMs = 4e3) {
+  const base = (cfg.apiBase || process.env.NYQUEST_API_BASE || DEFAULT_BASE).replace(/\/$/, "");
+  if (!fullMode(cfg)) return void 0;
+  try {
+    const r = await fetch(`${base}/user/plugin/settings`, {
+      method: "PUT",
+      headers: { "content-type": "application/json", authorization: `Bearer ${cfg.apiKey}` },
+      body: JSON.stringify({ level }),
+      signal: AbortSignal.timeout(timeoutMs)
+    });
+    if (!r.ok) return void 0;
+    return await r.json();
+  } catch {
+    return void 0;
+  }
+}
 async function accountSavings(cfg = loadConfig(), days = 30) {
   if (!fullMode(cfg)) return void 0;
   const base = (cfg.apiBase || process.env.NYQUEST_API_BASE || DEFAULT_BASE).replace(/\/$/, "");
@@ -21967,7 +21983,7 @@ function parseRange(r, n) {
   const b = m[2] ? Math.min(n, parseInt(m[2], 10)) : Math.min(n, a + 199);
   return a <= b ? [a, b] : void 0;
 }
-var server = new McpServer({ name: "nyquest", version: "0.2.7" });
+var server = new McpServer({ name: "nyquest", version: "0.3.0" });
 var reg = server.registerTool.bind(server);
 reg(
   "recall",
@@ -22144,7 +22160,7 @@ reg(
     ];
     if (fullMode(cfg)) {
       const a = await accountSavings(cfg, 30);
-      lines.push(a ? `Nyquest account (30 days): ${a.condense_calls} condensations, ${a.ask_calls} asks, ~${fmt(Number(a.tokens_in))} tokens read on the platform, ~${fmt(Number(a.tokens_kept_out))} kept out of Claude's context; daily cap ${a.daily_cap}.` : "Nyquest account savings: unavailable right now.");
+      lines.push(a ? `Nyquest account (30 days, all your machines): ${fmt(Number(a.parks || 0))} results parked (~${fmt(Number(a.park_tokens_kept_out || 0))} tokens kept out), ${a.condense_calls} condensations, ${a.ask_calls} asks (~${fmt(Number(a.tokens_kept_out))} tokens kept out); total ~${fmt(Number(a.total_tokens_kept_out ?? a.tokens_kept_out))} tokens. See app.nyquest.ai/savings. Daily platform cap ${a.daily_cap}.` : "Nyquest account savings: unavailable right now.");
     }
     return text(lines.filter(Boolean).join("\n"));
   }
@@ -22164,7 +22180,10 @@ reg(
   },
   async ({ level, enabled, showSavings, tool, toolEnabled, apiKey }) => {
     const cfg = loadConfig();
-    if (level !== void 0) cfg.level = clamp01(level);
+    if (level !== void 0) {
+      cfg.level = clamp01(level);
+      cfg.levelUpdatedAt = (/* @__PURE__ */ new Date()).toISOString();
+    }
     if (enabled !== void 0) cfg.enabled = enabled;
     if (showSavings !== void 0) cfg.showSavings = showSavings;
     if (tool) cfg.tools[tool] = toolEnabled ?? true;
@@ -22173,7 +22192,12 @@ reg(
       else delete cfg.apiKey;
     }
     saveConfig(cfg);
-    return text(`Nyquest: enabled=${cfg.enabled}, level=${cfg.level} (park results over ~${fmt(estimateTokens(thresholdFor(cfg.level)))} tokens), showSavings=${cfg.showSavings}, mode=${cfg.apiKey ? "full" : "local"}, tool overrides=${JSON.stringify(cfg.tools)}. Hook changes apply to the next tool call.`);
+    let synced = "";
+    if (level !== void 0 && fullMode(cfg)) {
+      const r = await putSettings(cfg.level, cfg);
+      synced = r ? " Level saved to your Nyquest account too." : " (Could not reach Nyquest to sync the level; it will sync at the next session start.)";
+    }
+    return text(`Nyquest: enabled=${cfg.enabled}, level=${cfg.level} (park results over ~${fmt(estimateTokens(thresholdFor(cfg.level)))} tokens), showSavings=${cfg.showSavings}, mode=${fullMode(cfg) ? "full" : "local"}, tool overrides=${JSON.stringify(cfg.tools)}. Hook changes apply to the next tool call.${synced}`);
   }
 );
 async function main() {
