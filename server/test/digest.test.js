@@ -103,6 +103,7 @@ test("hook end-to-end: parks a large Bash result and recall finds it", () => {
   assert.ok(upd.stdout.includes("worker-244: connection refused"));
   const id = upd.stdout.match(/parked as (nyq:[0-9a-f]{6})/)[1];
   assert.ok(out.hookSpecificOutput.additionalContext.includes(id));
+  assert.ok(out.systemMessage && out.systemMessage.includes(id) && /tokens/.test(out.systemMessage), "user-visible savings line");
   const loc = lib.locate(id, "test-session");
   assert.ok(loc, "parked file located");
   assert.equal(lib.readParked(loc), text);
@@ -158,5 +159,9 @@ test("classify treats markdown docs printed with cat as prose", () => {
 
 test("session start prints a status line", () => {
   const r = spawnSync(process.execPath, [path.join(__dirname, "..", "dist", "hook.js"), "--session-start"], { input: JSON.stringify({ session_id: "s2", hook_event_name: "SessionStart" }), env: { ...process.env, NYQUEST_HOME: TMP }, encoding: "utf8" });
-  assert.ok(r.stdout.startsWith("Nyquest context manager: local mode, level 0.5"), r.stdout);
+  const out = JSON.parse(r.stdout);
+  assert.ok(out.systemMessage.startsWith("Nyquest context manager: local mode, level 0.5"), r.stdout);
+  assert.equal(out.hookSpecificOutput.hookEventName, "SessionStart");
+  assert.equal(out.hookSpecificOutput.additionalContext, out.systemMessage);
+  assert.ok(out.systemMessage.includes("/nyquest:setup"), "local mode hint");
 });

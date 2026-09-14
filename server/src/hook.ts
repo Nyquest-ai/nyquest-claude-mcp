@@ -135,6 +135,8 @@ export async function handlePostToolUse(input: HookInput, cfg: Config): Promise<
   if (cfg.showSavings) {
     (out.hookSpecificOutput as any).additionalContext =
       `Nyquest parked this ${cls} output as ${entry.id}: ~${fmt(estimateTokens(ex.text.length))} → ~${fmt(estimateTokens(body.length))} tokens (est., ${fmt(saved)} kept out of context on every later turn). The digest keeps errors, summaries, head and tail verbatim${method === "condense" ? " and the condensed body preserves all facts, numbers, names and paths" : ""}; recall only if a detail you need is absent${fullMode(cfg) ? ` (recall(id="${entry.id}", ask="...") returns just an answer)` : ""}.`;
+    // systemMessage is shown to the USER by Claude Code; additionalContext above goes to Claude.
+    out.systemMessage = `Nyquest: parked ${cls} output ${entry.id}, ~${fmt(estimateTokens(ex.text.length))} → ~${fmt(estimateTokens(body.length))} tokens (est.), ${fmt(saved)} kept out of context on every later turn.`;
   }
   log(`park ${entry.id} tool=${tool} cls=${cls} method=${method} chars=${ex.text.length} digest=${body.length} session=${session}`);
   return out;
@@ -160,7 +162,12 @@ async function main(): Promise<void> {
   try { input = raw.trim() ? JSON.parse(raw) : {}; } catch { input = {}; }
   const cfg = loadConfig();
   if (process.argv.includes("--session-start") || input.hook_event_name === "SessionStart") {
-    process.stdout.write(sessionStart(input, cfg));
+    // Both audiences: additionalContext for Claude, systemMessage for the user's screen.
+    const line = sessionStart(input, cfg);
+    process.stdout.write(JSON.stringify({
+      systemMessage: line,
+      hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: line },
+    }));
     return;
   }
   if (input.hook_event_name !== "PostToolUse") return;
