@@ -10,6 +10,7 @@ import { park, purgeOld, storeSize } from "./store";
 import { recordPark, recordSkip, loadLedger, summarize } from "./ledger";
 import { estimateTokens, fmt } from "./tokens";
 import { fullMode, condense, reportParks } from "./api";
+import * as api from "./api";
 import { syncLevel } from "./sync";
 
 interface HookInput {
@@ -131,7 +132,8 @@ export async function handlePostToolUse(input: HookInput, cfg: Config): Promise<
   // Full mode: tell the account about this park (counts only, never content) so the
   // website's savings page reflects local-mode savings too. Bounded and fail-open.
   if (fullMode(cfg)) {
-    await reportParks([{ tool, kind: cls, method, chars_in: ex.text.length, chars_out: body.length, tokens_in: estimateTokens(ex.text.length), tokens_out: estimateTokens(body.length) }], cfg);
+    const n = await reportParks([{ tool, kind: cls, method, chars_in: ex.text.length, chars_out: body.length, tokens_in: estimateTokens(ex.text.length), tokens_out: estimateTokens(body.length) }], cfg);
+    log(`report ${entry.id} accepted=${n}${n ? "" : ` error=${api.lastError || "unknown"}`}`);
   }
 
   const saved = estimateTokens(ex.text.length) - estimateTokens(body.length);

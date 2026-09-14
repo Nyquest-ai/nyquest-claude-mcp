@@ -21910,21 +21910,30 @@ function redact(text2) {
 function fullMode(cfg = loadConfig()) {
   return Boolean(cfg.apiKey && cfg.apiKey.startsWith("nq-v1-"));
 }
+var lastError;
 async function post(cfg, path5, body, timeoutMs) {
-  if (!fullMode(cfg)) return void 0;
+  lastError = void 0;
+  if (!fullMode(cfg)) {
+    lastError = "not-full-mode";
+    return void 0;
+  }
   const base = (cfg.apiBase || process.env.NYQUEST_API_BASE || DEFAULT_BASE).replace(/\/$/, "");
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const r = await fetch(base + path5, {
       method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${cfg.apiKey}`, "user-agent": "nyquest-claude-mcp/0.2.0" },
+      headers: { "content-type": "application/json", authorization: `Bearer ${cfg.apiKey}`, "user-agent": "nyquest-claude-mcp/0.3.0" },
       body: JSON.stringify(body),
       signal: ctrl.signal
     });
-    if (!r.ok) return void 0;
+    if (!r.ok) {
+      lastError = `HTTP ${r.status}`;
+      return void 0;
+    }
     return await r.json();
-  } catch {
+  } catch (e) {
+    lastError = e?.name === "AbortError" ? `timeout ${timeoutMs}ms` : String(e?.message || e).slice(0, 120);
     return void 0;
   } finally {
     clearTimeout(timer);

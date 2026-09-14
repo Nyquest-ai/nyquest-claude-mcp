@@ -509,21 +509,30 @@ function redact(text) {
 function fullMode(cfg = loadConfig()) {
   return Boolean(cfg.apiKey && cfg.apiKey.startsWith("nq-v1-"));
 }
+var lastError;
 async function post(cfg, path5, body, timeoutMs) {
-  if (!fullMode(cfg)) return void 0;
+  lastError = void 0;
+  if (!fullMode(cfg)) {
+    lastError = "not-full-mode";
+    return void 0;
+  }
   const base = (cfg.apiBase || process.env.NYQUEST_API_BASE || DEFAULT_BASE).replace(/\/$/, "");
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const r = await fetch(base + path5, {
       method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${cfg.apiKey}`, "user-agent": "nyquest-claude-mcp/0.2.0" },
+      headers: { "content-type": "application/json", authorization: `Bearer ${cfg.apiKey}`, "user-agent": "nyquest-claude-mcp/0.3.0" },
       body: JSON.stringify(body),
       signal: ctrl.signal
     });
-    if (!r.ok) return void 0;
+    if (!r.ok) {
+      lastError = `HTTP ${r.status}`;
+      return void 0;
+    }
     return await r.json();
-  } catch {
+  } catch (e) {
+    lastError = e?.name === "AbortError" ? `timeout ${timeoutMs}ms` : String(e?.message || e).slice(0, 120);
     return void 0;
   } finally {
     clearTimeout(timer);
@@ -700,7 +709,8 @@ async function handlePostToolUse(input, cfg) {
   const body = digest + "\n" + footer(entry.id, lines, ex.text.length);
   recordPark(session, { id: entry.id, tool, cls, chars: ex.text.length, digestChars: body.length });
   if (fullMode(cfg)) {
-    await reportParks([{ tool, kind: cls, method, chars_in: ex.text.length, chars_out: body.length, tokens_in: estimateTokens(ex.text.length), tokens_out: estimateTokens(body.length) }], cfg);
+    const n = await reportParks([{ tool, kind: cls, method, chars_in: ex.text.length, chars_out: body.length, tokens_in: estimateTokens(ex.text.length), tokens_out: estimateTokens(body.length) }], cfg);
+    log(`report ${entry.id} accepted=${n}${n ? "" : ` error=${lastError || "unknown"}`}`);
   }
   const saved = estimateTokens(ex.text.length) - estimateTokens(body.length);
   const out = {

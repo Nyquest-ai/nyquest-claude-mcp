@@ -33,21 +33,26 @@ export interface AskResult {
   ms: number;
 }
 
+/** Last failure reason from a platform call, for the hook log. Never contains content. */
+export let lastError: string | undefined;
+
 async function post<T>(cfg: Config, path: string, body: unknown, timeoutMs: number): Promise<T | undefined> {
-  if (!fullMode(cfg)) return undefined;
+  lastError = undefined;
+  if (!fullMode(cfg)) { lastError = "not-full-mode"; return undefined; }
   const base = (cfg.apiBase || process.env.NYQUEST_API_BASE || DEFAULT_BASE).replace(/\/$/, "");
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const r = await fetch(base + path, {
       method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${cfg.apiKey}`, "user-agent": "nyquest-claude-mcp/0.2.0" },
+      headers: { "content-type": "application/json", authorization: `Bearer ${cfg.apiKey}`, "user-agent": "nyquest-claude-mcp/0.3.0" },
       body: JSON.stringify(body),
       signal: ctrl.signal,
     });
-    if (!r.ok) return undefined;
+    if (!r.ok) { lastError = `HTTP ${r.status}`; return undefined; }
     return (await r.json()) as T;
-  } catch {
+  } catch (e) {
+    lastError = (e as Error)?.name === "AbortError" ? `timeout ${timeoutMs}ms` : String((e as Error)?.message || e).slice(0, 120);
     return undefined;
   } finally {
     clearTimeout(timer);
