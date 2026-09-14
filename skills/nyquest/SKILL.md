@@ -22,3 +22,9 @@ Rules:
    `digest_file(path)` over Read. It returns a digest and parks the full text.
 5. `list_parked` shows everything parked in this session. `savings` shows what has been
    kept out of the context. `configure(level=...)` moves the 0..1 slider.
+6. Make the savings visible. Some clients (the Claude desktop app) do not show hook messages
+   to the user, so when one or more results were parked during your turn, end your reply
+   with a single short line, for example:
+   `Nyquest: kept ~4,100 tokens out of context this turn (2 results parked).`
+   Sum the "kept out of context" figures from the parking notes you received. Skip the line
+   when nothing was parked, and never add more than one line per reply.
