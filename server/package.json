@@ -9,7 +9,7 @@
     "check-version": "node scripts/check-version.mjs",
     "prebuild": "node scripts/check-version.mjs",
     "build": "node build.mjs",
-    "test": "node --test \"test/**/*.test.js\"",
+    "test": "node scripts/run-tests.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
