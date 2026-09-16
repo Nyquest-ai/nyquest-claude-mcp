@@ -11,6 +11,12 @@ export interface Config {
   retentionDays: number;
   /** Per-tool overrides: false disables parking for that tool name. */
   tools: Record<string, boolean>;
+  /**
+   * Per-tool overrides for full mode: true lets a tool's prose be sent to the Nyquest
+   * platform for condensation (and recall(ask=...)), false forbids it. Tools absent here
+   * follow REMOTE_OK: web and agent results may leave the machine, shell and MCP output never.
+   */
+  remoteTools: Record<string, boolean>;
   apiKey?: string;
   apiBase?: string;
   /** ISO time the level was last changed here; used for last-writer-wins sync with the website. */
@@ -23,6 +29,7 @@ export const DEFAULTS: Config = {
   showSavings: true,
   retentionDays: 7,
   tools: {},
+  remoteTools: {},
 };
 
 export function nyquestHome(): string {
@@ -34,11 +41,11 @@ export function configPath(): string {
 }
 
 export function loadConfig(): Config {
-  let cfg: Config = { ...DEFAULTS, tools: {} };
+  let cfg: Config = { ...DEFAULTS, tools: {}, remoteTools: {} };
   try {
     const raw = fs.readFileSync(configPath(), "utf8");
     const parsed = JSON.parse(raw);
-    cfg = { ...cfg, ...parsed, tools: { ...(parsed.tools || {}) } };
+    cfg = { ...cfg, ...parsed, tools: { ...(parsed.tools || {}) }, remoteTools: { ...(parsed.remoteTools || {}) } };
   } catch {
     /* no config yet */
   }
@@ -109,4 +116,19 @@ export function toolEligible(tool: string, cfg: Config): boolean {
   if (tool.startsWith("mcp__plugin_nyquest")) return false; // never park our own tools
   if (cfg.tools[tool] === false) return false;
   return true;
+}
+
+/**
+ * Tools whose prose may be sent to the Nyquest platform in full mode (condensation,
+ * recall(ask=...)). Web pages and agent reports are already text the user asked for
+ * from outside; shell output, files and MCP results stay on the machine unless the
+ * user opts the tool in through `remoteTools`.
+ */
+export const REMOTE_OK = new Set(["WebFetch", "WebSearch", "Agent", "Task", "digest_url"]);
+
+export function remoteEligible(tool: string, cfg: Config): boolean {
+  const override = cfg.remoteTools[tool];
+  if (override === true) return true;
+  if (override === false) return false;
+  return REMOTE_OK.has(tool);
 }

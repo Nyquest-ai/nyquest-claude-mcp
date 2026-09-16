@@ -13,6 +13,11 @@ Goal: get the user into the mode they want with as few steps as possible.
 3. If the user wants full mode and gave no key, explain in three short lines:
    - Full mode is free. It adds platform condensation for prose results, `recall(ask=...)`
      answers, `digest_url`, and account savings totals. Local mode keeps working without it.
+   - What leaves the machine in full mode: prose from web and agent tools (WebFetch,
+     WebSearch, Agent), with secrets redacted, is sent to the Nyquest platform and processed
+     by third-party model providers. Bash, PowerShell, file and MCP output never leaves the
+     machine unless the user opts a tool in with `configure(remoteTool="Bash", remoteEnabled=true)`.
+     Every park also reports counts only (tool, class, sizes), never content.
    - Get a key at https://app.nyquest.ai (sign in, create an API key; it starts with `nq-v1-`).
    - Then run `/nyquest:setup nq-v1-...`, or say "set my Nyquest API key to ...". Anyone who
      would rather keep the key out of the chat can set `NYQUEST_API_KEY` in the environment or

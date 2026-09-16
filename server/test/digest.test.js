@@ -65,6 +65,19 @@ test("classify picks log / data / code / prose", () => {
   assert.equal(lib.classify(code, "Bash", "sed -n 1,80p src/main.rs"), "code");
   const prose = Array.from({ length: 40 }, () => "The quick brown fox jumps over the lazy dog while the committee reviews the proposal in detail and considers every option carefully before deciding.").join("\n");
   assert.equal(lib.classify(prose, "WebFetch"), "prose");
+
+  // Line-oriented records from a shell are data, never prose: prose is what full mode
+  // would send to a model, and a summary of records drops the values.
+  const rows = Array.from({ length: 200 }, (_, i) => `row ${i + 1}: alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima value=${(i * 7919) % 10007} status=OK`).join("\n");
+  assert.equal(lib.classify(rows, "Bash"), "data");
+  assert.equal(lib.classify(rows.replace(/^row/gm, "psrow"), "PowerShell"), "data");
+  const plainRows = Array.from({ length: 200 }, (_, i) => `line ${i + 1}: the quick brown fox jumps over the lazy dog number ${i + 1} checksum ${(i * 7919) % 10007}`).join("\n");
+  assert.notEqual(lib.classify(plainRows, "Bash"), "prose");
+  // Hard-wrapped paragraphs without headings: not prose from a shell (the safe direction).
+  const wrapped = Array.from({ length: 80 }, (_, i) => `the committee reviewed the proposal in detail and considered every option before deciding on plan ${i}`.slice(0, 78)).join("\n");
+  assert.notEqual(lib.classify(wrapped, "Bash"), "prose");
+  // The same rows fetched from the web may still be prose: web results are allowed to leave.
+  assert.equal(lib.classify(rows, "WebFetch"), "prose");
 });
 
 test("thresholds follow the slider", () => {
@@ -134,6 +147,47 @@ test("redact strips secrets before text leaves the machine", () => {
   assert.ok(!r.includes("AKIAABCDEFGHIJKLMNOP"));
   assert.ok(r.includes("[REDACTED]"));
   assert.equal(lib.redact("plain text with numbers 12345 and /a/path.txt"), "plain text with numbers 12345 and /a/path.txt");
+
+  // Formats the 2026-09-15 audit found passing through. Assembled at runtime so the
+  // source never holds a string shaped like a live credential: GitHub's push protection
+  // rejects such literals even inside tests.
+  const alpha = "abcdefghijklmnopqrstuvwxyz";
+  const ghToken = "gh" + "p_" + alpha + "0123456789";          // 36-character classic token shape
+  const stripeKey = "sk_" + "live_" + alpha.slice(0, 24);
+  const googleKey = "AI" + "za" + "SyA-" + alpha + "0123456";
+  const slackToken = "xox" + "b-" + "123456789012-" + alpha.slice(0, 12);
+  const awsKeyId = "AK" + "IA" + "IOSFODNN7EXAMPLE";
+  const awsSecret = "wJalrXUtnFEMI/K7MDENG/" + "bPxRfiCYEXAMPLEKEY";
+  const openaiKey = "sk-" + "proj-" + alpha + "0123456789";
+  const jwt = ["eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9", "eyJzdWIiOiIxMjM0NTY3ODkwIn0", "SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"].join(".");
+  const dbUrl = "DATABASE_URL=postgres://app:p4ssw0rd@db.internal:5432/prod";
+  const leaky = [
+    "password=hunter2",
+    "DB_PASSWORD: s3cr3tValue!",
+    dbUrl,
+    "Authorization: Bearer " + jwt,
+    "OPENAI_API_KEY=" + openaiKey,
+    "token=" + ghToken,
+    "AWS_SECRET_ACCESS_KEY=" + awsSecret,
+    awsKeyId,
+    slackToken,
+    "STRIPE_SECRET_KEY=" + stripeKey,
+    "Basic dXNlcjpwYXNzd29yZA==",
+    googleKey,
+  ];
+  for (const s of leaky) assert.ok(lib.redact(s).includes("[REDACTED]"), `not redacted: ${s}`);
+  assert.ok(!lib.redact("password=hunter2").includes("hunter2"));
+  assert.ok(!lib.redact(dbUrl).includes("p4ssw0rd"));
+  assert.ok(!lib.redact("AWS_SECRET_ACCESS_KEY=" + awsSecret).includes("wJalrXUtnFEMI"));
+  assert.ok(!lib.redact("STRIPE_SECRET_KEY=" + stripeKey).includes(stripeKey.slice(0, 11)));
+  // Ordinary text, paths, git SHAs, URLs without credentials and token counts stay intact.
+  for (const s of [
+    "plain text with numbers 12345 and /a/path.txt",
+    "commit d4d8cb7fbb75b421dd494c86ee69aed31290a331 on main",
+    "curl --max-time 10 https://nyquest.ai/privacy",
+    "max_tokens: 4096 and input_tokens=1200, ~1,062 tokens estimated",
+    "The token count is 5; tokens=1200",
+  ]) assert.equal(lib.redact(s), s, s);
 });
 
 test("full mode is off without an nq-v1 key", () => {

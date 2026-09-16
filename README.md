@@ -118,12 +118,17 @@ slider under Settings → Claude Code plugin stays in step with `/nyquest:level`
 
 - **Local** (default, no account): all digests are deterministic and everything stays on
   your machine.
-- **Full** (Nyquest API key, free): prose results (web pages, agent reports, docs) get
-  semantic condensation on the Nyquest platform, `recall(ask="...")` answers a question
-  over a parked output so only the answer enters Claude's context, `digest_url` fetches
-  and condenses a page, and `savings` shows your account totals. Text is redacted for
-  secrets before it leaves the machine; Nyquest stores counts only, never content. Per-user
-  cap of 400 platform calls a day; local mode keeps working when the cap or network is out.
+- **Full** (Nyquest API key, free): prose results from web and agent tools (WebFetch,
+  WebSearch, Agent) get semantic condensation on the Nyquest platform, `recall(ask="...")`
+  answers a question over such a parked output so only the answer enters Claude's context,
+  `digest_url` fetches and condenses a page, and `savings` shows your account totals.
+  Bash, PowerShell, file and MCP output never leaves the machine unless you opt a tool in
+  (`configure(remoteTool="Bash", remoteEnabled=true)`, or `"remoteTools": {"Bash": true}` in
+  `~/.nyquest/config.json`). Text is redacted for common secret formats before it leaves the
+  machine. Nyquest stores counts only, never content, but the text is processed by the
+  third-party model providers the platform routes to; see the
+  [privacy policy](https://nyquest.ai/privacy). Per-user cap of 400 platform calls a day;
+  local mode keeps working when the cap or network is out.
 
   Endpoints used: `POST /v1/plugin/condense`, `POST /v1/plugin/ask`, `GET /user/plugin/savings`
   on `https://api.nyquest.ai` (override with `apiBase` in `~/.nyquest/config.json` or `NYQUEST_API_BASE`).
@@ -133,6 +138,24 @@ slider under Settings → Claude Code plugin stays in step with `/nyquest:level`
 Parked text lives under `~/.nyquest/ctx` and is purged after 7 days (`retentionDays` in
 `~/.nyquest/config.json`). In local mode no content leaves the machine. `~/.nyquest/shapes.json`
 records only the field names of tool responses so unknown shapes can be supported.
+
+What leaves the machine, by mode and tool:
+
+| Mode | Tool result | Sent to Nyquest |
+|---|---|---|
+| Local | any | nothing |
+| Full | WebFetch, WebSearch, Agent prose over the prose threshold | the text, secrets redacted, for condensation |
+| Full | `recall(ask=...)` on those results, `digest_url` | the text, secrets redacted, for the answer or digest |
+| Full | Bash, PowerShell, `digest_file`, MCP tools | nothing, unless the tool is opted in with `remoteTools` |
+| Full | every park | counts only: tool name, content class, sizes |
+
+Text sent to the platform is processed by third-party model providers. Nyquest keeps
+counts, never content. Policies: [privacy](https://nyquest.ai/privacy), [terms](https://nyquest.ai/terms).
+
+## Support
+
+- Bugs and feature requests: [GitHub Issues](https://github.com/Nyquest-ai/nyquest-claude-mcp/issues).
+- Security or privacy concerns, or anything you would rather not post publicly: [nyquest.ai/support](https://nyquest.ai/support).
 
 ## Development
 

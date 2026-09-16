@@ -9,10 +9,12 @@ digest (head, every error/warning line, counts, tail) and a footer naming the pa
 
 Rules:
 
-1. The digest keeps every error and warning line, every summary line (test counts, timings),
-   and the first and last lines verbatim. A condensed prose digest preserves all facts,
-   numbers, names and paths. If the digest answers the question, answer from it directly;
-   do not recall just to double-check.
+1. A log digest keeps every error and warning line, every summary line (test counts, timings),
+   and the first and last lines verbatim; data and code digests keep the head, the tail and
+   the shape (columns, definitions). If such a digest answers the question, answer from it
+   directly; do not recall just to double-check. A digest marked "condensed by Nyquest" is a
+   model-written summary: values, counts and exact wording may be missing, so recall before
+   quoting a specific number, name or path from it.
 2. When a specific detail you need is absent, call the `recall` tool instead of re-running:
    - `recall(id="nyq:7f3a9c", grep="TypeError|failed", context=3)` to find something
    - `recall(id="nyq:7f3a9c", lines="120-180")` for an exact range

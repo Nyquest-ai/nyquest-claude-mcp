@@ -4,7 +4,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { loadConfig, saveConfig, clamp01, thresholdFor, nyquestHome } from "./config";
+import { loadConfig, saveConfig, clamp01, thresholdFor, nyquestHome, remoteEligible } from "./config";
 import { locate, readParked, bumpRecall, listSession, park, storeSize, latestSession } from "./store";
 import { loadLedger, summarize, recordRecall, recordPark } from "./ledger";
 import { makeDigest, footer } from "./digest";
@@ -52,7 +52,7 @@ reg(
       grep: z.string().optional().describe("Regular expression to search for (case-insensitive)"),
       context: z.number().int().min(0).max(20).optional().describe("Context lines around grep matches (default 2)"),
       max_matches: z.number().int().min(1).max(500).optional().describe("Cap on grep matches (default 100)"),
-      ask: z.string().optional().describe("Full mode only: a question answered over the whole parked output by a Nyquest-routed model"),
+      ask: z.string().optional().describe("Full mode only: a question answered over the whole parked output by a Nyquest-routed model. Sends the parked text (secrets redacted) to the Nyquest platform, so it is allowed for web and agent results only; Bash, PowerShell, file and MCP output stays local unless the user opted the tool in."),
     }),
   },
   async ({ id, lines, grep, context, max_matches, ask }: { id: string; lines?: string; grep?: string; context?: number; max_matches?: number; ask?: string }) => {
@@ -68,6 +68,8 @@ reg(
       const cfg = loadConfig();
       if (!fullMode(cfg)) {
         out = `recall(ask=...) needs Nyquest full mode: set an API key with configure(apiKey="nq-v1-...") (free, from app.nyquest.ai). Meanwhile use lines= or grep=. The output has ${all.length} lines.`;
+      } else if (!remoteEligible(loc.entry.tool, cfg)) {
+        out = `recall(ask=...) is not available for output parked from ${loc.entry.tool}: that text stays on this machine. Use lines= or grep= (the output has ${all.length} lines), or opt the tool in with configure(remoteTool="${loc.entry.tool}", remoteEnabled=true).`;
       } else {
         const r = await apiAsk(body, ask, cfg);
         out = r
@@ -137,7 +139,7 @@ reg(
     const { cls, digest, lines } = makeDigest(body, "digest_file", "cat " + abs, forced);
     if (digest.length >= body.length * 0.85) return text(body);
     const entry = park(sessionId(),body, { tool: "digest_file", command: abs, cls, digestChars: digest.length });
-    const out = digest + "\n" + footer(entry.id, lines, body.length);
+    const out = digest + "\n" + footer(entry.id, lines, body.length, cls);
     recordPark(sessionId(),{ id: entry.id, tool: "digest_file", cls, chars: body.length, digestChars: out.length });
     return text(out);
   },
@@ -159,7 +161,7 @@ function htmlToText(html: string): string {
 reg(
   "digest_url",
   {
-    description: "Fetch a web page and get a compact digest (Nyquest semantic condensation in full mode, head/tail locally) with the full text parked for recall. Optionally ask a question and get only the answer.",
+    description: "Fetch a web page and get a compact digest (Nyquest semantic condensation in full mode, head/tail locally) with the full text parked for recall. Optionally ask a question and get only the answer. In full mode the page text (secrets redacted) is sent to the Nyquest platform.",
     inputSchema: z.object({
       url: z.string().url().describe("http(s) URL"),
       question: z.string().optional().describe("Full mode: answer this question from the page instead of returning a digest"),
@@ -188,12 +190,16 @@ reg(
       }
     }
     let digest: string | undefined;
+    let method: "local" | "condense" = "local";
     if (fullMode(cfg)) {
       const r = await apiCondense(raw, "prose", cfg);
-      if (r && r.smaller) digest = `[nyquest digest: web page, condensed by Nyquest (${r.model}); ~${fmt(r.original_tokens)} → ~${fmt(r.condensed_tokens)} tokens]\n` + r.digest;
+      if (r && r.smaller) {
+        digest = `[nyquest digest: web page, condensed by Nyquest (${r.model}); ~${fmt(r.original_tokens)} → ~${fmt(r.condensed_tokens)} tokens. Model-written summary; recall for exact text]\n` + r.digest;
+        method = "condense";
+      }
     }
     if (!digest) digest = makeDigest(raw, "digest_url", url, "prose").digest;
-    const out = digest + "\n" + footer(entry.id, raw.split("\n").length, raw.length);
+    const out = digest + "\n" + footer(entry.id, raw.split("\n").length, raw.length, "prose", method);
     recordPark(sessionId(), { id: entry.id, tool: "digest_url", cls: "prose", chars: raw.length, digestChars: out.length });
     return text(out);
   },
@@ -228,22 +234,25 @@ reg(
 reg(
   "configure",
   {
-    description: "Change Nyquest settings: level (0..1 slider; 0=off, 0.5 default), enabled, showSavings, or disable parking for a tool. Persists to ~/.nyquest/config.json.",
+    description: "Change Nyquest settings: level (0..1 slider; 0=off, 0.5 default), enabled, showSavings, disable parking for a tool, or allow a tool's prose to be sent to the Nyquest platform in full mode (remoteTool). Persists to ~/.nyquest/config.json.",
     inputSchema: z.object({
       level: z.number().min(0).max(1).optional(),
       enabled: z.boolean().optional(),
       showSavings: z.boolean().optional(),
       tool: z.string().optional().describe("Tool name to enable/disable parking for"),
       toolEnabled: z.boolean().optional(),
+      remoteTool: z.string().optional().describe("Tool name whose prose may (true) or may never (false) be sent to Nyquest for condensation and recall(ask=...) in full mode. By default only WebFetch, WebSearch, Agent and digest_url may."),
+      remoteEnabled: z.boolean().optional(),
       apiKey: z.string().optional().describe("Nyquest API key (nq-v1-...) to enable full mode; empty string removes it"),
     }),
   },
-  async ({ level, enabled, showSavings, tool, toolEnabled, apiKey }: { level?: number; enabled?: boolean; showSavings?: boolean; tool?: string; toolEnabled?: boolean; apiKey?: string }) => {
+  async ({ level, enabled, showSavings, tool, toolEnabled, remoteTool, remoteEnabled, apiKey }: { level?: number; enabled?: boolean; showSavings?: boolean; tool?: string; toolEnabled?: boolean; remoteTool?: string; remoteEnabled?: boolean; apiKey?: string }) => {
     const cfg = loadConfig();
     if (level !== undefined) { cfg.level = clamp01(level); cfg.levelUpdatedAt = new Date().toISOString(); }
     if (enabled !== undefined) cfg.enabled = enabled;
     if (showSavings !== undefined) cfg.showSavings = showSavings;
     if (tool) cfg.tools[tool] = toolEnabled ?? true;
+    if (remoteTool) cfg.remoteTools[remoteTool] = remoteEnabled ?? true;
     if (apiKey !== undefined) { if (apiKey) cfg.apiKey = apiKey; else delete cfg.apiKey; }
     saveConfig(cfg);
     // Keep the website's Settings → Claude Code slider in step (full mode only, fail-open).
@@ -252,7 +261,7 @@ reg(
       const r = await putSettings(cfg.level, cfg);
       synced = r ? " Level saved to your Nyquest account too." : " (Could not reach Nyquest to sync the level; it will sync at the next session start.)";
     }
-    return text(`Nyquest: enabled=${cfg.enabled}, level=${cfg.level} (park results over ~${fmt(estimateTokens(thresholdFor(cfg.level)))} tokens), showSavings=${cfg.showSavings}, mode=${fullMode(cfg) ? "full" : "local"}, tool overrides=${JSON.stringify(cfg.tools)}. Hook changes apply to the next tool call.${synced}`);
+    return text(`Nyquest: enabled=${cfg.enabled}, level=${cfg.level} (park results over ~${fmt(estimateTokens(thresholdFor(cfg.level)))} tokens), showSavings=${cfg.showSavings}, mode=${fullMode(cfg) ? "full" : "local"}, tool overrides=${JSON.stringify(cfg.tools)}, remote overrides=${JSON.stringify(cfg.remoteTools)}. Hook changes apply to the next tool call.${synced}`);
   },
 );
 

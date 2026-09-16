@@ -4,8 +4,8 @@
 // Fail-open: on any error, print nothing and exit 0 so Claude sees the original.
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { loadConfig, thresholdFor, proseThresholdFor, codeParkingEnabled, toolEligible, nyquestHome, type Config } from "./config";
-import { makeDigest, footer } from "./digest";
+import { loadConfig, thresholdFor, proseThresholdFor, codeParkingEnabled, toolEligible, remoteEligible, nyquestHome, type Config } from "./config";
+import { makeDigest, footer, guarantee, type DigestMethod } from "./digest";
 import { park, purgeOld, storeSize } from "./store";
 import { recordPark, recordSkip, loadLedger, summarize } from "./ledger";
 import { estimateTokens, fmt } from "./tokens";
@@ -112,22 +112,28 @@ export async function handlePostToolUse(input: HookInput, cfg: Config): Promise<
   if (cls === "code" && !codeParkingEnabled(cfg.level)) { recordSkip(session, "code-untouched"); return undefined; }
   if (cls === "prose" && ex.text.length < proseThresholdFor(cfg.level)) { recordSkip(session, "prose-below-threshold"); return undefined; }
 
-  // Full mode: prose gets semantic condensation on the Nyquest platform. Any
-  // failure or a non-smaller result keeps the local head/tail digest.
-  let method = "local";
+  // Full mode: prose from web and agent tools gets semantic condensation on the
+  // Nyquest platform. Shell, file and MCP output never leaves the machine unless the
+  // user opted the tool in (remoteTools). Any failure or a non-smaller result keeps
+  // the local head/tail digest.
+  let method: DigestMethod = "local";
   if (cls === "prose" && fullMode(cfg)) {
-    const r = await condense(ex.text, cls, cfg);
-    if (r && r.smaller && r.digest.length < digest.length) {
-      digest = `[nyquest digest: prose, condensed by Nyquest (${r.model}); ~${fmt(r.original_tokens)} → ~${fmt(r.condensed_tokens)} tokens]\n` + r.digest;
-      method = "condense";
+    if (!remoteEligible(tool, cfg)) {
+      recordSkip(session, "remote-not-eligible");
     } else {
-      recordSkip(session, r ? "condense-not-smaller" : "condense-unavailable");
+      const r = await condense(ex.text, cls, cfg);
+      if (r && r.smaller && r.digest.length < digest.length) {
+        digest = `[nyquest digest: prose, condensed by Nyquest (${r.model}); ~${fmt(r.original_tokens)} → ~${fmt(r.condensed_tokens)} tokens. Model-written summary; recall for exact text]\n` + r.digest;
+        method = "condense";
+      } else {
+        recordSkip(session, r ? "condense-not-smaller" : "condense-unavailable");
+      }
     }
   }
   if (digest.length >= ex.text.length * 0.85) { recordSkip(session, "digest-not-smaller"); return undefined; }
 
   const entry = park(session, ex.text, { tool, command, cls, digestChars: digest.length });
-  const body = digest + "\n" + footer(entry.id, lines, ex.text.length);
+  const body = digest + "\n" + footer(entry.id, lines, ex.text.length, cls, method);
   recordPark(session, { id: entry.id, tool, cls, chars: ex.text.length, digestChars: body.length });
   // Full mode: tell the account about this park (counts only, never content) so the
   // website's savings page reflects local-mode savings too. Bounded and fail-open.
@@ -141,8 +147,10 @@ export async function handlePostToolUse(input: HookInput, cfg: Config): Promise<
     hookSpecificOutput: { hookEventName: "PostToolUse", updatedToolOutput: ex.rebuild(body) },
   };
   if (cfg.showSavings) {
+    // Only advertise ask= where it is allowed: the parked text would be sent to the platform.
+    const askHint = fullMode(cfg) && remoteEligible(tool, cfg) ? ` (recall(id="${entry.id}", ask="...") returns just an answer)` : "";
     (out.hookSpecificOutput as any).additionalContext =
-      `Nyquest parked this ${cls} output as ${entry.id}: ~${fmt(estimateTokens(ex.text.length))} → ~${fmt(estimateTokens(body.length))} tokens (est., ${fmt(saved)} kept out of context on every later turn). The digest keeps errors, summaries, head and tail verbatim${method === "condense" ? " and the condensed body preserves all facts, numbers, names and paths" : ""}; recall only if a detail you need is absent${fullMode(cfg) ? ` (recall(id="${entry.id}", ask="...") returns just an answer)` : ""}.`;
+      `Nyquest parked this ${cls} output as ${entry.id}: ~${fmt(estimateTokens(ex.text.length))} → ~${fmt(estimateTokens(body.length))} tokens (est., ${fmt(saved)} kept out of context on every later turn). ${guarantee(cls, method)}; recall only if a detail you need is absent${askHint}.`;
     // systemMessage is shown to the USER by Claude Code; additionalContext above goes to Claude.
     out.systemMessage = `Nyquest: parked ${cls} output ${entry.id}, ~${fmt(estimateTokens(ex.text.length))} → ~${fmt(estimateTokens(body.length))} tokens (est.), ${fmt(saved)} kept out of context on every later turn.`;
   }

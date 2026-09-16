@@ -46,7 +46,8 @@ var DEFAULTS = {
   level: 0.5,
   showSavings: true,
   retentionDays: 7,
-  tools: {}
+  tools: {},
+  remoteTools: {}
 };
 function nyquestHome() {
   return process.env.NYQUEST_HOME || path.join(os.homedir(), ".nyquest");
@@ -55,11 +56,11 @@ function configPath() {
   return path.join(nyquestHome(), "config.json");
 }
 function loadConfig() {
-  let cfg = { ...DEFAULTS, tools: {} };
+  let cfg = { ...DEFAULTS, tools: {}, remoteTools: {} };
   try {
     const raw = fs.readFileSync(configPath(), "utf8");
     const parsed = JSON.parse(raw);
-    cfg = { ...cfg, ...parsed, tools: { ...parsed.tools || {} } };
+    cfg = { ...cfg, ...parsed, tools: { ...parsed.tools || {} }, remoteTools: { ...parsed.remoteTools || {} } };
   } catch {
   }
   const env = (process.env.NYQUEST_COMPRESS || "").toLowerCase();
@@ -114,6 +115,13 @@ function toolEligible(tool, cfg) {
   if (cfg.tools[tool] === false) return false;
   return true;
 }
+var REMOTE_OK = /* @__PURE__ */ new Set(["WebFetch", "WebSearch", "Agent", "Task", "digest_url"]);
+function remoteEligible(tool, cfg) {
+  const override = cfg.remoteTools[tool];
+  if (override === true) return true;
+  if (override === false) return false;
+  return REMOTE_OK.has(tool);
+}
 
 // src/classify.ts
 var CODE_CMD = /\b(sed\s+-n|cat\s+(-n\s+)?[^|;]*\.(rs|js|jsx|ts|tsx|py|go|java|rb|php|c|cc|cpp|h|hpp|cs|swift|kt|html|css|scss|toml|json|ya?ml|sh|sql)\b|git\s+(diff|show)\b|grep\s+-[a-zA-Z]*n)/;
@@ -135,25 +143,33 @@ function classify(text, tool, command) {
   const sample = nonEmpty.slice(0, 400);
   if (command && CODE_CMD.test(command)) return "code";
   if (t.includes("```")) return "code";
-  let codeLines = 0, logLines = 0, sepLines = 0, longProse = 0, headings = 0, totalLen = 0;
+  let codeLines = 0, logLines = 0, sepLines = 0, longProse = 0, headings = 0, sentences = 0, totalLen = 0;
+  const lens = [];
   for (const l of sample) {
     totalLen += l.length;
+    lens.push(l.length);
     if (CODE_LINE.test(l)) codeLines++;
     if (LOG_LINE.test(l)) logLines++;
-    if (/\t|\|/.test(l) || /^\s*[\w.-]{1,40}\s*[:=]\s*\S/.test(l) || /^[^,\s]{1,40}(,[^,]{0,60}){3,}$/.test(l)) sepLines++;
+    if (/\t|\|/.test(l) || /^\s*[\w.-]{1,40}\s*[:=]\s*\S/.test(l) || /^[^,\s]{1,40}(,[^,]{0,60}){3,}$/.test(l) || (l.match(/(?:^|\s)[\w.-]{1,40}=\S/g) || []).length >= 2) sepLines++;
     if (l.length > 90 && (l.match(/[a-zA-Z]{3,}\s+[a-zA-Z]{3,}/g) || []).length >= 6) longProse++;
     if (/^\s*#{1,6}\s+\S/.test(l)) headings++;
+    if (/[.!?]["')\]]?\s*$/.test(l)) sentences++;
   }
   const s = sample.length || 1;
   const avgLen = totalLen / s;
+  const sorted = [...lens].sort((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)] || 0;
+  const regular = median ? lens.filter((x) => Math.abs(x - median) <= median * 0.15).length / s : 0;
+  const blanks = (lines.length - nonEmpty.length) / Math.max(1, lines.length);
   if (codeLines / s >= 0.25) return "code";
-  if (tool === "WebFetch" || tool === "WebSearch" || tool === "Agent") {
+  if (tool === "WebFetch" || tool === "WebSearch" || tool === "Agent" || tool === "Task") {
     return longProse / s >= 0.15 || avgLen > 60 ? "prose" : "log";
   }
   if (headings >= 2 && longProse / s >= 0.2) return "prose";
   if (logLines / s >= 0.3) return "log";
   if (sepLines / s >= 0.8 && n >= 8) return "data";
-  if (longProse / s >= 0.3) return "prose";
+  if (regular >= 0.7 && n >= 8) return "data";
+  if (longProse / s >= 0.3 && (sentences / s >= 0.4 || blanks >= 0.05)) return "prose";
   return "log";
 }
 
@@ -356,10 +372,23 @@ function makeDigest(text, tool, command, forced) {
   const digest = digestFor(cls, text);
   return { cls, digest, lines: text.split("\n").length };
 }
-function footer(id, lines, chars) {
+function guarantee(cls, method = "local") {
+  if (method === "condense") return "The body above is a model-written summary: values, counts and exact wording may be missing";
+  switch (cls) {
+    case "log":
+      return "The digest keeps every error and warning line, summary lines, and the head and tail verbatim";
+    case "data":
+      return "The digest keeps the head and tail verbatim plus the shape of the data; most rows are omitted";
+    case "code":
+      return "The digest keeps the head, the tail and a definition index; the body is omitted";
+    case "prose":
+      return "The digest keeps the head and tail verbatim; the middle is omitted";
+  }
+}
+function footer(id, lines, chars, cls = "log", method = "local") {
   return [
     "",
-    `[nyquest] Full output parked as ${id} (${fmt(lines)} lines, ~${fmt(estimateTokens(chars))} tokens, est.). The digest above keeps every error/warning line, summary line, and the head and tail verbatim; if it already answers the question, use it as-is.`,
+    `[nyquest] Full output parked as ${id} (${fmt(lines)} lines, ~${fmt(estimateTokens(chars))} tokens, est.). ${guarantee(cls, method)}; if it already answers the question, use it as-is.`,
     `Only when a specific detail is missing: recall(id="${id}", grep="pattern") or recall(id="${id}", lines="120-180") returns exact text. Do not re-run the command to see the full output again.`
   ].join("\n");
 }
@@ -502,7 +531,36 @@ function summarize(l) {
 
 // src/api.ts
 var DEFAULT_BASE = "https://api.nyquest.ai";
-var RE_SECRET = /(sk-[A-Za-z0-9_-]{16,}|sk-ant-[A-Za-z0-9_-]{16,}|ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[A-Z0-9]{16}|xox[baprs]-[A-Za-z0-9-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----|nq-v1-[A-Za-z0-9_-]{20,}|eyJ[A-Za-z0-9_-]{30,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}|(?:password|passwd|secret|token|api[_-]?key)\s*[:=]\s*["']?[^\s"']{8,}|authorization:\s*bearer\s+\S{16,})/gi;
+var SECRET_PATTERNS = [
+  String.raw`sk-[A-Za-z0-9_-]{16,}`,
+  // OpenAI, Anthropic (sk-ant-), sk-proj-
+  String.raw`sk_(?:live|test)_[A-Za-z0-9]{16,}`,
+  // Stripe secret keys
+  String.raw`rk_(?:live|test)_[A-Za-z0-9]{16,}`,
+  // Stripe restricted keys
+  String.raw`gh[pousr]_[A-Za-z0-9]{20,}`,
+  // GitHub ghp_/gho_/ghu_/ghs_/ghr_
+  String.raw`github_pat_[A-Za-z0-9_]{20,}`,
+  String.raw`(?:AKIA|ASIA)[A-Z0-9]{16}`,
+  // AWS access key ids
+  String.raw`xox[baprs]-[A-Za-z0-9-]{10,}`,
+  // Slack
+  String.raw`AIza[0-9A-Za-z_-]{35}`,
+  // Google API keys
+  String.raw`nq-v1-[A-Za-z0-9_-]{20,}`,
+  // Nyquest
+  String.raw`-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----`,
+  String.raw`eyJ[A-Za-z0-9_-]{30,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}`,
+  // JWT
+  String.raw`[a-z][a-z0-9+.-]*://[^\s/:@]+:[^\s@]+@`,
+  // scheme://user:password@host
+  String.raw`authorization:\s*(?:bearer|basic|token)\s+\S{8,}`,
+  String.raw`\bbasic\s+[A-Za-z0-9+/]{16,}={0,2}`,
+  String.raw`sharedaccesssignature=\S+`,
+  String.raw`\bsig=[A-Za-z0-9%+/=]{20,}`,
+  String.raw`(?<![A-Za-z0-9])(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|secret[_-]?access[_-]?key|secret[_-]?key|auth[_-]?token|session[_-]?token)\s*[:=]\s*["']?[^\s"']+`
+];
+var RE_SECRET = new RegExp(SECRET_PATTERNS.join("|"), "gi");
 function redact(text) {
   return text.replace(RE_SECRET, "[REDACTED]");
 }
@@ -692,13 +750,17 @@ async function handlePostToolUse(input, cfg) {
   }
   let method = "local";
   if (cls === "prose" && fullMode(cfg)) {
-    const r = await condense(ex.text, cls, cfg);
-    if (r && r.smaller && r.digest.length < digest.length) {
-      digest = `[nyquest digest: prose, condensed by Nyquest (${r.model}); ~${fmt(r.original_tokens)} \u2192 ~${fmt(r.condensed_tokens)} tokens]
-` + r.digest;
-      method = "condense";
+    if (!remoteEligible(tool, cfg)) {
+      recordSkip(session, "remote-not-eligible");
     } else {
-      recordSkip(session, r ? "condense-not-smaller" : "condense-unavailable");
+      const r = await condense(ex.text, cls, cfg);
+      if (r && r.smaller && r.digest.length < digest.length) {
+        digest = `[nyquest digest: prose, condensed by Nyquest (${r.model}); ~${fmt(r.original_tokens)} \u2192 ~${fmt(r.condensed_tokens)} tokens. Model-written summary; recall for exact text]
+` + r.digest;
+        method = "condense";
+      } else {
+        recordSkip(session, r ? "condense-not-smaller" : "condense-unavailable");
+      }
     }
   }
   if (digest.length >= ex.text.length * 0.85) {
@@ -706,7 +768,7 @@ async function handlePostToolUse(input, cfg) {
     return void 0;
   }
   const entry = park(session, ex.text, { tool, command, cls, digestChars: digest.length });
-  const body = digest + "\n" + footer(entry.id, lines, ex.text.length);
+  const body = digest + "\n" + footer(entry.id, lines, ex.text.length, cls, method);
   recordPark(session, { id: entry.id, tool, cls, chars: ex.text.length, digestChars: body.length });
   if (fullMode(cfg)) {
     const n = await reportParks([{ tool, kind: cls, method, chars_in: ex.text.length, chars_out: body.length, tokens_in: estimateTokens(ex.text.length), tokens_out: estimateTokens(body.length) }], cfg);
@@ -717,7 +779,8 @@ async function handlePostToolUse(input, cfg) {
     hookSpecificOutput: { hookEventName: "PostToolUse", updatedToolOutput: ex.rebuild(body) }
   };
   if (cfg.showSavings) {
-    out.hookSpecificOutput.additionalContext = `Nyquest parked this ${cls} output as ${entry.id}: ~${fmt(estimateTokens(ex.text.length))} \u2192 ~${fmt(estimateTokens(body.length))} tokens (est., ${fmt(saved)} kept out of context on every later turn). The digest keeps errors, summaries, head and tail verbatim${method === "condense" ? " and the condensed body preserves all facts, numbers, names and paths" : ""}; recall only if a detail you need is absent${fullMode(cfg) ? ` (recall(id="${entry.id}", ask="...") returns just an answer)` : ""}.`;
+    const askHint = fullMode(cfg) && remoteEligible(tool, cfg) ? ` (recall(id="${entry.id}", ask="...") returns just an answer)` : "";
+    out.hookSpecificOutput.additionalContext = `Nyquest parked this ${cls} output as ${entry.id}: ~${fmt(estimateTokens(ex.text.length))} \u2192 ~${fmt(estimateTokens(body.length))} tokens (est., ${fmt(saved)} kept out of context on every later turn). ${guarantee(cls, method)}; recall only if a detail you need is absent${askHint}.`;
     out.systemMessage = `Nyquest: parked ${cls} output ${entry.id}, ~${fmt(estimateTokens(ex.text.length))} \u2192 ~${fmt(estimateTokens(body.length))} tokens (est.), ${fmt(saved)} kept out of context on every later turn.`;
   }
   log(`park ${entry.id} tool=${tool} cls=${cls} method=${method} chars=${ex.text.length} digest=${body.length} session=${session}`);

@@ -21442,7 +21442,8 @@ var DEFAULTS = {
   level: 0.5,
   showSavings: true,
   retentionDays: 7,
-  tools: {}
+  tools: {},
+  remoteTools: {}
 };
 function nyquestHome() {
   return process.env.NYQUEST_HOME || path.join(os.homedir(), ".nyquest");
@@ -21451,11 +21452,11 @@ function configPath() {
   return path.join(nyquestHome(), "config.json");
 }
 function loadConfig() {
-  let cfg = { ...DEFAULTS, tools: {} };
+  let cfg = { ...DEFAULTS, tools: {}, remoteTools: {} };
   try {
     const raw = fs.readFileSync(configPath(), "utf8");
     const parsed = JSON.parse(raw);
-    cfg = { ...cfg, ...parsed, tools: { ...parsed.tools || {} } };
+    cfg = { ...cfg, ...parsed, tools: { ...parsed.tools || {} }, remoteTools: { ...parsed.remoteTools || {} } };
   } catch {
   }
   const env = (process.env.NYQUEST_COMPRESS || "").toLowerCase();
@@ -21485,6 +21486,13 @@ function thresholdFor(level) {
   if (level < 0.7) return 6e3;
   if (level < 0.95) return 3e3;
   return 2e3;
+}
+var REMOTE_OK = /* @__PURE__ */ new Set(["WebFetch", "WebSearch", "Agent", "Task", "digest_url"]);
+function remoteEligible(tool, cfg) {
+  const override = cfg.remoteTools[tool];
+  if (override === true) return true;
+  if (override === false) return false;
+  return REMOTE_OK.has(tool);
 }
 
 // src/store.ts
@@ -21683,25 +21691,33 @@ function classify(text2, tool, command) {
   const sample = nonEmpty.slice(0, 400);
   if (command && CODE_CMD.test(command)) return "code";
   if (t.includes("```")) return "code";
-  let codeLines = 0, logLines = 0, sepLines = 0, longProse = 0, headings = 0, totalLen = 0;
+  let codeLines = 0, logLines = 0, sepLines = 0, longProse = 0, headings = 0, sentences = 0, totalLen = 0;
+  const lens = [];
   for (const l of sample) {
     totalLen += l.length;
+    lens.push(l.length);
     if (CODE_LINE.test(l)) codeLines++;
     if (LOG_LINE.test(l)) logLines++;
-    if (/\t|\|/.test(l) || /^\s*[\w.-]{1,40}\s*[:=]\s*\S/.test(l) || /^[^,\s]{1,40}(,[^,]{0,60}){3,}$/.test(l)) sepLines++;
+    if (/\t|\|/.test(l) || /^\s*[\w.-]{1,40}\s*[:=]\s*\S/.test(l) || /^[^,\s]{1,40}(,[^,]{0,60}){3,}$/.test(l) || (l.match(/(?:^|\s)[\w.-]{1,40}=\S/g) || []).length >= 2) sepLines++;
     if (l.length > 90 && (l.match(/[a-zA-Z]{3,}\s+[a-zA-Z]{3,}/g) || []).length >= 6) longProse++;
     if (/^\s*#{1,6}\s+\S/.test(l)) headings++;
+    if (/[.!?]["')\]]?\s*$/.test(l)) sentences++;
   }
   const s = sample.length || 1;
   const avgLen = totalLen / s;
+  const sorted = [...lens].sort((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)] || 0;
+  const regular = median ? lens.filter((x) => Math.abs(x - median) <= median * 0.15).length / s : 0;
+  const blanks = (lines.length - nonEmpty.length) / Math.max(1, lines.length);
   if (codeLines / s >= 0.25) return "code";
-  if (tool === "WebFetch" || tool === "WebSearch" || tool === "Agent") {
+  if (tool === "WebFetch" || tool === "WebSearch" || tool === "Agent" || tool === "Task") {
     return longProse / s >= 0.15 || avgLen > 60 ? "prose" : "log";
   }
   if (headings >= 2 && longProse / s >= 0.2) return "prose";
   if (logLines / s >= 0.3) return "log";
   if (sepLines / s >= 0.8 && n >= 8) return "data";
-  if (longProse / s >= 0.3) return "prose";
+  if (regular >= 0.7 && n >= 8) return "data";
+  if (longProse / s >= 0.3 && (sentences / s >= 0.4 || blanks >= 0.05)) return "prose";
   return "log";
 }
 
@@ -21893,17 +21909,59 @@ function makeDigest(text2, tool, command, forced) {
   const digest = digestFor(cls, text2);
   return { cls, digest, lines: text2.split("\n").length };
 }
-function footer(id, lines, chars) {
+function guarantee(cls, method = "local") {
+  if (method === "condense") return "The body above is a model-written summary: values, counts and exact wording may be missing";
+  switch (cls) {
+    case "log":
+      return "The digest keeps every error and warning line, summary lines, and the head and tail verbatim";
+    case "data":
+      return "The digest keeps the head and tail verbatim plus the shape of the data; most rows are omitted";
+    case "code":
+      return "The digest keeps the head, the tail and a definition index; the body is omitted";
+    case "prose":
+      return "The digest keeps the head and tail verbatim; the middle is omitted";
+  }
+}
+function footer(id, lines, chars, cls = "log", method = "local") {
   return [
     "",
-    `[nyquest] Full output parked as ${id} (${fmt(lines)} lines, ~${fmt(estimateTokens(chars))} tokens, est.). The digest above keeps every error/warning line, summary line, and the head and tail verbatim; if it already answers the question, use it as-is.`,
+    `[nyquest] Full output parked as ${id} (${fmt(lines)} lines, ~${fmt(estimateTokens(chars))} tokens, est.). ${guarantee(cls, method)}; if it already answers the question, use it as-is.`,
     `Only when a specific detail is missing: recall(id="${id}", grep="pattern") or recall(id="${id}", lines="120-180") returns exact text. Do not re-run the command to see the full output again.`
   ].join("\n");
 }
 
 // src/api.ts
 var DEFAULT_BASE = "https://api.nyquest.ai";
-var RE_SECRET = /(sk-[A-Za-z0-9_-]{16,}|sk-ant-[A-Za-z0-9_-]{16,}|ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[A-Z0-9]{16}|xox[baprs]-[A-Za-z0-9-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----|nq-v1-[A-Za-z0-9_-]{20,}|eyJ[A-Za-z0-9_-]{30,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}|(?:password|passwd|secret|token|api[_-]?key)\s*[:=]\s*["']?[^\s"']{8,}|authorization:\s*bearer\s+\S{16,})/gi;
+var SECRET_PATTERNS = [
+  String.raw`sk-[A-Za-z0-9_-]{16,}`,
+  // OpenAI, Anthropic (sk-ant-), sk-proj-
+  String.raw`sk_(?:live|test)_[A-Za-z0-9]{16,}`,
+  // Stripe secret keys
+  String.raw`rk_(?:live|test)_[A-Za-z0-9]{16,}`,
+  // Stripe restricted keys
+  String.raw`gh[pousr]_[A-Za-z0-9]{20,}`,
+  // GitHub ghp_/gho_/ghu_/ghs_/ghr_
+  String.raw`github_pat_[A-Za-z0-9_]{20,}`,
+  String.raw`(?:AKIA|ASIA)[A-Z0-9]{16}`,
+  // AWS access key ids
+  String.raw`xox[baprs]-[A-Za-z0-9-]{10,}`,
+  // Slack
+  String.raw`AIza[0-9A-Za-z_-]{35}`,
+  // Google API keys
+  String.raw`nq-v1-[A-Za-z0-9_-]{20,}`,
+  // Nyquest
+  String.raw`-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----`,
+  String.raw`eyJ[A-Za-z0-9_-]{30,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}`,
+  // JWT
+  String.raw`[a-z][a-z0-9+.-]*://[^\s/:@]+:[^\s@]+@`,
+  // scheme://user:password@host
+  String.raw`authorization:\s*(?:bearer|basic|token)\s+\S{8,}`,
+  String.raw`\bbasic\s+[A-Za-z0-9+/]{16,}={0,2}`,
+  String.raw`sharedaccesssignature=\S+`,
+  String.raw`\bsig=[A-Za-z0-9%+/=]{20,}`,
+  String.raw`(?<![A-Za-z0-9])(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|secret[_-]?access[_-]?key|secret[_-]?key|auth[_-]?token|session[_-]?token)\s*[:=]\s*["']?[^\s"']+`
+];
+var RE_SECRET = new RegExp(SECRET_PATTERNS.join("|"), "gi");
 function redact(text2) {
   return text2.replace(RE_SECRET, "[REDACTED]");
 }
@@ -22004,7 +22062,7 @@ reg(
       grep: external_exports.string().optional().describe("Regular expression to search for (case-insensitive)"),
       context: external_exports.number().int().min(0).max(20).optional().describe("Context lines around grep matches (default 2)"),
       max_matches: external_exports.number().int().min(1).max(500).optional().describe("Cap on grep matches (default 100)"),
-      ask: external_exports.string().optional().describe("Full mode only: a question answered over the whole parked output by a Nyquest-routed model")
+      ask: external_exports.string().optional().describe("Full mode only: a question answered over the whole parked output by a Nyquest-routed model. Sends the parked text (secrets redacted) to the Nyquest platform, so it is allowed for web and agent results only; Bash, PowerShell, file and MCP output stays local unless the user opted the tool in.")
     })
   },
   async ({ id, lines, grep, context, max_matches, ask: ask2 }) => {
@@ -22020,6 +22078,8 @@ reg(
       const cfg = loadConfig();
       if (!fullMode(cfg)) {
         out = `recall(ask=...) needs Nyquest full mode: set an API key with configure(apiKey="nq-v1-...") (free, from app.nyquest.ai). Meanwhile use lines= or grep=. The output has ${all.length} lines.`;
+      } else if (!remoteEligible(loc.entry.tool, cfg)) {
+        out = `recall(ask=...) is not available for output parked from ${loc.entry.tool}: that text stays on this machine. Use lines= or grep= (the output has ${all.length} lines), or opt the tool in with configure(remoteTool="${loc.entry.tool}", remoteEnabled=true).`;
       } else {
         const r = await ask(body, ask2, cfg);
         out = r ? `${id} (${all.length} lines), answered by Nyquest (${r.model}, ${r.ms} ms; ~${fmt(r.original_tokens)} tokens read, ~${fmt(r.answer_tokens)} returned):
@@ -22099,7 +22159,7 @@ reg(
     const { cls, digest, lines } = makeDigest(body, "digest_file", "cat " + abs, forced);
     if (digest.length >= body.length * 0.85) return text(body);
     const entry = park(sessionId(), body, { tool: "digest_file", command: abs, cls, digestChars: digest.length });
-    const out = digest + "\n" + footer(entry.id, lines, body.length);
+    const out = digest + "\n" + footer(entry.id, lines, body.length, cls);
     recordPark(sessionId(), { id: entry.id, tool: "digest_file", cls, chars: body.length, digestChars: out.length });
     return text(out);
   }
@@ -22110,7 +22170,7 @@ function htmlToText(html) {
 reg(
   "digest_url",
   {
-    description: "Fetch a web page and get a compact digest (Nyquest semantic condensation in full mode, head/tail locally) with the full text parked for recall. Optionally ask a question and get only the answer.",
+    description: "Fetch a web page and get a compact digest (Nyquest semantic condensation in full mode, head/tail locally) with the full text parked for recall. Optionally ask a question and get only the answer. In full mode the page text (secrets redacted) is sent to the Nyquest platform.",
     inputSchema: external_exports.object({
       url: external_exports.string().url().describe("http(s) URL"),
       question: external_exports.string().optional().describe("Full mode: answer this question from the page instead of returning a digest")
@@ -22140,13 +22200,17 @@ ${r.answer}`);
       }
     }
     let digest;
+    let method = "local";
     if (fullMode(cfg)) {
       const r = await condense(raw, "prose", cfg);
-      if (r && r.smaller) digest = `[nyquest digest: web page, condensed by Nyquest (${r.model}); ~${fmt(r.original_tokens)} \u2192 ~${fmt(r.condensed_tokens)} tokens]
+      if (r && r.smaller) {
+        digest = `[nyquest digest: web page, condensed by Nyquest (${r.model}); ~${fmt(r.original_tokens)} \u2192 ~${fmt(r.condensed_tokens)} tokens. Model-written summary; recall for exact text]
 ` + r.digest;
+        method = "condense";
+      }
     }
     if (!digest) digest = makeDigest(raw, "digest_url", url, "prose").digest;
-    const out = digest + "\n" + footer(entry.id, raw.split("\n").length, raw.length);
+    const out = digest + "\n" + footer(entry.id, raw.split("\n").length, raw.length, "prose", method);
     recordPark(sessionId(), { id: entry.id, tool: "digest_url", cls: "prose", chars: raw.length, digestChars: out.length });
     return text(out);
   }
@@ -22177,17 +22241,19 @@ reg(
 reg(
   "configure",
   {
-    description: "Change Nyquest settings: level (0..1 slider; 0=off, 0.5 default), enabled, showSavings, or disable parking for a tool. Persists to ~/.nyquest/config.json.",
+    description: "Change Nyquest settings: level (0..1 slider; 0=off, 0.5 default), enabled, showSavings, disable parking for a tool, or allow a tool's prose to be sent to the Nyquest platform in full mode (remoteTool). Persists to ~/.nyquest/config.json.",
     inputSchema: external_exports.object({
       level: external_exports.number().min(0).max(1).optional(),
       enabled: external_exports.boolean().optional(),
       showSavings: external_exports.boolean().optional(),
       tool: external_exports.string().optional().describe("Tool name to enable/disable parking for"),
       toolEnabled: external_exports.boolean().optional(),
+      remoteTool: external_exports.string().optional().describe("Tool name whose prose may (true) or may never (false) be sent to Nyquest for condensation and recall(ask=...) in full mode. By default only WebFetch, WebSearch, Agent and digest_url may."),
+      remoteEnabled: external_exports.boolean().optional(),
       apiKey: external_exports.string().optional().describe("Nyquest API key (nq-v1-...) to enable full mode; empty string removes it")
     })
   },
-  async ({ level, enabled, showSavings, tool, toolEnabled, apiKey }) => {
+  async ({ level, enabled, showSavings, tool, toolEnabled, remoteTool, remoteEnabled, apiKey }) => {
     const cfg = loadConfig();
     if (level !== void 0) {
       cfg.level = clamp01(level);
@@ -22196,6 +22262,7 @@ reg(
     if (enabled !== void 0) cfg.enabled = enabled;
     if (showSavings !== void 0) cfg.showSavings = showSavings;
     if (tool) cfg.tools[tool] = toolEnabled ?? true;
+    if (remoteTool) cfg.remoteTools[remoteTool] = remoteEnabled ?? true;
     if (apiKey !== void 0) {
       if (apiKey) cfg.apiKey = apiKey;
       else delete cfg.apiKey;
@@ -22206,7 +22273,7 @@ reg(
       const r = await putSettings(cfg.level, cfg);
       synced = r ? " Level saved to your Nyquest account too." : " (Could not reach Nyquest to sync the level; it will sync at the next session start.)";
     }
-    return text(`Nyquest: enabled=${cfg.enabled}, level=${cfg.level} (park results over ~${fmt(estimateTokens(thresholdFor(cfg.level)))} tokens), showSavings=${cfg.showSavings}, mode=${fullMode(cfg) ? "full" : "local"}, tool overrides=${JSON.stringify(cfg.tools)}. Hook changes apply to the next tool call.${synced}`);
+    return text(`Nyquest: enabled=${cfg.enabled}, level=${cfg.level} (park results over ~${fmt(estimateTokens(thresholdFor(cfg.level)))} tokens), showSavings=${cfg.showSavings}, mode=${fullMode(cfg) ? "full" : "local"}, tool overrides=${JSON.stringify(cfg.tools)}, remote overrides=${JSON.stringify(cfg.remoteTools)}. Hook changes apply to the next tool call.${synced}`);
   }
 );
 async function main() {

@@ -5,7 +5,33 @@ import { loadConfig, type Config } from "./config";
 
 export const DEFAULT_BASE = "https://api.nyquest.ai";
 
-const RE_SECRET = /(sk-[A-Za-z0-9_-]{16,}|sk-ant-[A-Za-z0-9_-]{16,}|ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[A-Z0-9]{16}|xox[baprs]-[A-Za-z0-9-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----|nq-v1-[A-Za-z0-9_-]{20,}|eyJ[A-Za-z0-9_-]{30,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}|(?:password|passwd|secret|token|api[_-]?key)\s*[:=]\s*["']?[^\s"']{8,}|authorization:\s*bearer\s+\S{16,})/gi;
+// Secret shapes stripped from any text before it is posted to the platform. This runs
+// only on the outgoing copy; the parked text on disk is untouched, so a false positive
+// costs summary quality, never recall. Order: provider prefixes, private keys and JWTs,
+// credentials embedded in URLs, header forms, then generic key = value pairs whose key
+// is a secret-ish word (any prefix such as AWS_SECRET_ACCESS_KEY or DB_PASSWORD, any
+// value length; plurals like max_tokens do not match because the word must be followed
+// directly by : or =).
+const SECRET_PATTERNS: string[] = [
+  String.raw`sk-[A-Za-z0-9_-]{16,}`,                         // OpenAI, Anthropic (sk-ant-), sk-proj-
+  String.raw`sk_(?:live|test)_[A-Za-z0-9]{16,}`,             // Stripe secret keys
+  String.raw`rk_(?:live|test)_[A-Za-z0-9]{16,}`,             // Stripe restricted keys
+  String.raw`gh[pousr]_[A-Za-z0-9]{20,}`,                    // GitHub ghp_/gho_/ghu_/ghs_/ghr_
+  String.raw`github_pat_[A-Za-z0-9_]{20,}`,
+  String.raw`(?:AKIA|ASIA)[A-Z0-9]{16}`,                     // AWS access key ids
+  String.raw`xox[baprs]-[A-Za-z0-9-]{10,}`,                  // Slack
+  String.raw`AIza[0-9A-Za-z_-]{35}`,                         // Google API keys
+  String.raw`nq-v1-[A-Za-z0-9_-]{20,}`,                      // Nyquest
+  String.raw`-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----`,
+  String.raw`eyJ[A-Za-z0-9_-]{30,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}`, // JWT
+  String.raw`[a-z][a-z0-9+.-]*://[^\s/:@]+:[^\s@]+@`,        // scheme://user:password@host
+  String.raw`authorization:\s*(?:bearer|basic|token)\s+\S{8,}`,
+  String.raw`\bbasic\s+[A-Za-z0-9+/]{16,}={0,2}`,
+  String.raw`sharedaccesssignature=\S+`,
+  String.raw`\bsig=[A-Za-z0-9%+/=]{20,}`,
+  String.raw`(?<![A-Za-z0-9])(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|secret[_-]?access[_-]?key|secret[_-]?key|auth[_-]?token|session[_-]?token)\s*[:=]\s*["']?[^\s"']+`,
+];
+export const RE_SECRET = new RegExp(SECRET_PATTERNS.join("|"), "gi");
 
 export function redact(text: string): string {
   return text.replace(RE_SECRET, "[REDACTED]");
