@@ -197,7 +197,8 @@ test("full mode is off without an nq-v1 key", () => {
 });
 
 test("hook leaves outputs Claude Code already persisted alone", () => {
-  const run = (input) => spawnSync(process.execPath, [path.join(__dirname, "..", "dist", "hook.js")], { input: JSON.stringify(input), env: { ...process.env, NYQUEST_HOME: TMP }, encoding: "utf8" });
+  // CLAUDE_CONFIG_DIR points at an empty dir so the developer's own bashOutputMaxChars cannot change the limit.
+  const run = (input) => spawnSync(process.execPath, [path.join(__dirname, "..", "dist", "hook.js")], { input: JSON.stringify(input), env: { ...process.env, NYQUEST_HOME: TMP, CLAUDE_CONFIG_DIR: TMP }, encoding: "utf8" });
   const big = logLines(1200); // > 30,000 chars: Claude Code truncates and persists this itself
   assert.ok(big.length >= 30000);
   const r = run({ session_id: "s3", hook_event_name: "PostToolUse", tool_name: "Bash", tool_response: { stdout: big.slice(0, 30000), stderr: "" } });

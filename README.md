@@ -36,8 +36,9 @@ Measured, not simulated (Phase 3, 2026-09-13): on a 13-turn session auditing twe
 logs, the plugin cut cache writes 78%, total context read 40%, final-turn context 52%
 (138k → 66k tokens) and cost 57% at list prices, with identical, fully correct output and no
 recalls. On five short tasks it saved 35% with 10/10 correctness. The plugin's territory is
-tool output between about 6 KB and 30 KB: below that nothing is parked, above it Claude Code
-already saves the output to a file itself.
+tool output between the level threshold and Claude Code's own persist limit
+(`bashOutputMaxChars`, 30 KB unless you raised it): below the threshold nothing is parked,
+above the limit Claude Code already saves the output to a file itself.
 
 ## Install
 
@@ -85,6 +86,12 @@ Type `/nyquest:level 0.8`, or just tell Claude "set the Nyquest level to 0.8". R
 | 0.5 | ~1,500 tokens | default; code listings untouched; prose only above ~3,000 tokens |
 | 0.8 | ~750 tokens | code listings parked with a definition index |
 | 1.0 | ~500 tokens | everything eligible |
+
+Two guards apply at every level. A park must save at least `minSavingTokens` (default 300,
+in `~/.nyquest/config.json`) after paying for the digest, the footer and the parking note,
+and the replacement must be under 70% of the original. Targeted reads (`grep`, `sed -n`,
+`head`, `tail`, `awk`, `Select-String`, or anything piped through `head`/`tail`) under 8 KB
+are never parked: those are the exact lines Claude asked for.
 
 Emergency off switch without uninstalling: set `NYQUEST_COMPRESS=off` in your environment,
 or say "turn Nyquest off" (which calls `configure(enabled=false)`).

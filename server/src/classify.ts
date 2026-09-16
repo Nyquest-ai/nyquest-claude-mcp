@@ -29,7 +29,14 @@ export function classify(text: string, tool: string, command?: string): ContentC
 
   // Command hint: viewing source through Bash.
   if (command && CODE_CMD.test(command)) return "code";
-  if (t.includes("```")) return "code";
+  // Fenced blocks: a page that is mostly one fenced block is code; a document with a
+  // few examples is still prose (a fetched README used to get a code digest).
+  let inFence = false, fencedLines = 0;
+  for (const l of lines) {
+    if (/^\s*```/.test(l)) { inFence = !inFence; fencedLines++; continue; }
+    if (inFence) fencedLines++;
+  }
+  if (fencedLines / Math.max(1, lines.length) >= 0.3) return "code";
 
   let codeLines = 0, logLines = 0, sepLines = 0, longProse = 0, headings = 0, sentences = 0, totalLen = 0;
   const lens: number[] = [];

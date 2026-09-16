@@ -17,6 +17,12 @@ export interface Config {
    * follow REMOTE_OK: web and agent results may leave the machine, shell and MCP output never.
    */
   remoteTools: Record<string, boolean>;
+  /**
+   * A result is parked only when the estimated saving, after paying for the digest, the
+   * footer and the parking note, is at least this many tokens. Small parks lose lines
+   * for nothing otherwise.
+   */
+  minSavingTokens: number;
   apiKey?: string;
   apiBase?: string;
   /** ISO time the level was last changed here; used for last-writer-wins sync with the website. */
@@ -30,6 +36,7 @@ export const DEFAULTS: Config = {
   retentionDays: 7,
   tools: {},
   remoteTools: {},
+  minSavingTokens: 300,
 };
 
 export function nyquestHome(): string {
@@ -57,6 +64,7 @@ export function loadConfig(): Config {
   }
   if (process.env.NYQUEST_API_KEY) cfg.apiKey = process.env.NYQUEST_API_KEY;
   cfg.level = clamp01(cfg.level);
+  if (typeof cfg.minSavingTokens !== "number" || !Number.isFinite(cfg.minSavingTokens) || cfg.minSavingTokens < 0) cfg.minSavingTokens = DEFAULTS.minSavingTokens;
   return cfg;
 }
 

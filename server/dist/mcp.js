@@ -21443,7 +21443,8 @@ var DEFAULTS = {
   showSavings: true,
   retentionDays: 7,
   tools: {},
-  remoteTools: {}
+  remoteTools: {},
+  minSavingTokens: 300
 };
 function nyquestHome() {
   return process.env.NYQUEST_HOME || path.join(os.homedir(), ".nyquest");
@@ -21467,6 +21468,7 @@ function loadConfig() {
   }
   if (process.env.NYQUEST_API_KEY) cfg.apiKey = process.env.NYQUEST_API_KEY;
   cfg.level = clamp01(cfg.level);
+  if (typeof cfg.minSavingTokens !== "number" || !Number.isFinite(cfg.minSavingTokens) || cfg.minSavingTokens < 0) cfg.minSavingTokens = DEFAULTS.minSavingTokens;
   return cfg;
 }
 function saveConfig(cfg) {
@@ -21690,7 +21692,16 @@ function classify(text2, tool, command) {
   const n = Math.max(1, nonEmpty.length);
   const sample = nonEmpty.slice(0, 400);
   if (command && CODE_CMD.test(command)) return "code";
-  if (t.includes("```")) return "code";
+  let inFence = false, fencedLines = 0;
+  for (const l of lines) {
+    if (/^\s*```/.test(l)) {
+      inFence = !inFence;
+      fencedLines++;
+      continue;
+    }
+    if (inFence) fencedLines++;
+  }
+  if (fencedLines / Math.max(1, lines.length) >= 0.3) return "code";
   let codeLines = 0, logLines = 0, sepLines = 0, longProse = 0, headings = 0, sentences = 0, totalLen = 0;
   const lens = [];
   for (const l of sample) {

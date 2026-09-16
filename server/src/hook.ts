@@ -6,12 +6,24 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { loadConfig, thresholdFor, proseThresholdFor, codeParkingEnabled, toolEligible, remoteEligible, nyquestHome, type Config } from "./config";
 import { makeDigest, footer, guarantee, type DigestMethod } from "./digest";
+import { bashPersistLimit } from "./settings";
 import { park, purgeOld, storeSize } from "./store";
 import { recordPark, recordSkip, loadLedger, summarize } from "./ledger";
 import { estimateTokens, fmt } from "./tokens";
 import { fullMode, condense, reportParks } from "./api";
 import * as api from "./api";
 import { syncLevel } from "./sync";
+
+/**
+ * Targeted reads: grep, sed -n, head, tail, awk, their PowerShell equivalents, or
+ * anything piped through head/tail. These are the excerpts the model asked for; a
+ * digest would remove the very lines it wanted. A leading `cd dir &&` is ignored.
+ */
+const TARGETED_READ = /^\s*(?:grep|rg|sed\s+-n|head|tail|awk|Select-String)\b|\|\s*(?:head|tail|Select-String|Select-Object\s+-(?:First|Last))\b|\bGet-Content\b[^|]*-(?:Head|Tail|TotalCount)\b/i;
+const TARGETED_READ_MAX_CHARS = 8_000;
+
+/** Estimated size of the parking note (additionalContext) that enters the context with every park. */
+const NOTE_TOKENS = 85;
 
 interface HookInput {
   session_id?: string;
@@ -95,19 +107,25 @@ export async function handlePostToolUse(input: HookInput, cfg: Config): Promise<
   if (!ex) { recordSkip(session, "unknown-shape:" + tool); return undefined; }
   const threshold = thresholdFor(cfg.level);
   if (ex.text.length < threshold) return undefined;
-  // Claude Code already persists Bash output above ~30 KB to a file and shows the
-  // model a ~2 KB preview; the hook receives the 30,000-char truncation. Nothing
-  // to gain there, and replacing the preview would only hide the saved-file path.
-  // Learned from real responses (shapes.json): a persisted Bash result carries
-  // persistedOutputPath / persistedOutputSize. The length check stays as a fallback.
+  // Claude Code already persists Bash output above bashOutputMaxChars (30 KB unless
+  // the user raised it) to a file and shows the model a ~2 KB preview; the hook
+  // receives the truncation. Nothing to gain there, and replacing the preview would
+  // only hide the saved-file path. Learned from real responses (shapes.json): a
+  // persisted Bash result carries persistedOutputPath / persistedOutputSize. The
+  // length check stays as a fallback for older versions.
   const resp = input.tool_response as Record<string, unknown> | null;
   const persisted = !!(resp && typeof resp === "object" && (resp.persistedOutputPath || resp.persistedOutputSize));
-  if (persisted || ex.text.includes("<persisted-output>") || (tool === "Bash" && ex.text.length >= 30_000)) {
+  if (persisted || ex.text.includes("<persisted-output>") || (tool === "Bash" && ex.text.length >= bashPersistLimit(input.cwd))) {
     recordSkip(session, "already-persisted-by-claude-code");
     return undefined;
   }
 
   const command = commandOf(tool, input.tool_input);
+  const bare = command ? command.replace(/^\s*cd\s+[^&;|]+(?:&&|;)\s*/, "") : undefined;
+  if (bare && TARGETED_READ.test(bare) && ex.text.length < TARGETED_READ_MAX_CHARS) {
+    recordSkip(session, "targeted-read");
+    return undefined;
+  }
   let { cls, digest, lines } = makeDigest(ex.text, tool, command);
   if (cls === "code" && !codeParkingEnabled(cfg.level)) { recordSkip(session, "code-untouched"); return undefined; }
   if (cls === "prose" && ex.text.length < proseThresholdFor(cfg.level)) { recordSkip(session, "prose-below-threshold"); return undefined; }
@@ -130,7 +148,17 @@ export async function handlePostToolUse(input: HookInput, cfg: Config): Promise<
       }
     }
   }
-  if (digest.length >= ex.text.length * 0.85) { recordSkip(session, "digest-not-smaller"); return undefined; }
+  // Net-saving gate on the whole replacement: digest + footer + the parking note that
+  // enters the context with it. The old 85% check looked at the bare digest and let
+  // through parks that dropped a dozen lines to save under a hundred tokens.
+  const footerChars = footer("nyq:000000", lines, ex.text.length, cls, method).length;
+  const originalTokens = estimateTokens(ex.text.length);
+  const replacementTokens = estimateTokens(digest.length + footerChars);
+  const netSaved = originalTokens - replacementTokens - (cfg.showSavings ? NOTE_TOKENS : 0);
+  if (netSaved < cfg.minSavingTokens || replacementTokens > originalTokens * 0.7) {
+    recordSkip(session, "saving-too-small");
+    return undefined;
+  }
 
   const entry = park(session, ex.text, { tool, command, cls, digestChars: digest.length });
   const body = digest + "\n" + footer(entry.id, lines, ex.text.length, cls, method);

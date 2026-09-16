@@ -11,3 +11,4 @@ export { loadLedger, summarize } from "./ledger";
 export { estimateTokens } from "./tokens";
 export { extract, handlePostToolUse } from "./hook";
 export { redact, fullMode } from "./api";
+export { persistLimit, bashPersistLimit, DEFAULT_PERSIST_LIMIT } from "./settings";

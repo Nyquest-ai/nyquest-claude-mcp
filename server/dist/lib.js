@@ -31,9 +31,11 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 var lib_exports = {};
 __export(lib_exports, {
   DEFAULTS: () => DEFAULTS,
+  DEFAULT_PERSIST_LIMIT: () => DEFAULT_PERSIST_LIMIT,
   ERR_RE: () => ERR_RE,
   NEVER_PARK: () => NEVER_PARK,
   REMOTE_OK: () => REMOTE_OK,
+  bashPersistLimit: () => bashPersistLimit,
   classify: () => classify,
   codeParkingEnabled: () => codeParkingEnabled,
   digestCode: () => digestCode,
@@ -54,6 +56,7 @@ __export(lib_exports, {
   locate: () => locate,
   makeDigest: () => makeDigest,
   park: () => park,
+  persistLimit: () => persistLimit,
   purgeOld: () => purgeOld,
   readParked: () => readParked,
   redact: () => redact,
@@ -84,7 +87,16 @@ function classify(text, tool, command) {
   const n = Math.max(1, nonEmpty.length);
   const sample = nonEmpty.slice(0, 400);
   if (command && CODE_CMD.test(command)) return "code";
-  if (t.includes("```")) return "code";
+  let inFence = false, fencedLines = 0;
+  for (const l of lines) {
+    if (/^\s*```/.test(l)) {
+      inFence = !inFence;
+      fencedLines++;
+      continue;
+    }
+    if (inFence) fencedLines++;
+  }
+  if (fencedLines / Math.max(1, lines.length) >= 0.3) return "code";
   let codeLines = 0, logLines = 0, sepLines = 0, longProse = 0, headings = 0, sentences = 0, totalLen = 0;
   const lens = [];
   for (const l of sample) {
@@ -345,7 +357,8 @@ var DEFAULTS = {
   showSavings: true,
   retentionDays: 7,
   tools: {},
-  remoteTools: {}
+  remoteTools: {},
+  minSavingTokens: 300
 };
 function nyquestHome() {
   return process.env.NYQUEST_HOME || path.join(os.homedir(), ".nyquest");
@@ -369,6 +382,7 @@ function loadConfig() {
   }
   if (process.env.NYQUEST_API_KEY) cfg.apiKey = process.env.NYQUEST_API_KEY;
   cfg.level = clamp01(cfg.level);
+  if (typeof cfg.minSavingTokens !== "number" || !Number.isFinite(cfg.minSavingTokens) || cfg.minSavingTokens < 0) cfg.minSavingTokens = DEFAULTS.minSavingTokens;
   return cfg;
 }
 function saveConfig(cfg) {
@@ -581,8 +595,36 @@ function summarize(l) {
 }
 
 // src/hook.ts
+var fs5 = __toESM(require("node:fs"));
+var path5 = __toESM(require("node:path"));
+
+// src/settings.ts
 var fs4 = __toESM(require("node:fs"));
 var path4 = __toESM(require("node:path"));
+var os2 = __toESM(require("node:os"));
+var DEFAULT_PERSIST_LIMIT = 3e4;
+function readJson(file2) {
+  try {
+    const v = JSON.parse(fs4.readFileSync(file2, "utf8"));
+    return v && typeof v === "object" ? v : void 0;
+  } catch {
+    return void 0;
+  }
+}
+function persistLimit(...settings) {
+  let limit = DEFAULT_PERSIST_LIMIT;
+  for (const s of settings) {
+    const v = s?.bashOutputMaxChars;
+    if (typeof v === "number" && Number.isFinite(v) && v >= 1e3) limit = Math.floor(v);
+  }
+  return limit;
+}
+function bashPersistLimit(cwd) {
+  const configDir = process.env.CLAUDE_CONFIG_DIR || path4.join(os2.homedir(), ".claude");
+  const files = [path4.join(configDir, "settings.json")];
+  if (cwd) files.push(path4.join(cwd, ".claude", "settings.json"), path4.join(cwd, ".claude", "settings.local.json"));
+  return persistLimit(...files.map(readJson));
+}
 
 // src/api.ts
 var DEFAULT_BASE = "https://api.nyquest.ai";
@@ -623,7 +665,7 @@ function fullMode(cfg = loadConfig()) {
   return Boolean(cfg.apiKey && cfg.apiKey.startsWith("nq-v1-"));
 }
 var lastError;
-async function post(cfg, path5, body, timeoutMs) {
+async function post(cfg, path6, body, timeoutMs) {
   lastError = void 0;
   if (!fullMode(cfg)) {
     lastError = "not-full-mode";
@@ -633,7 +675,7 @@ async function post(cfg, path5, body, timeoutMs) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const r = await fetch(base + path5, {
+    const r = await fetch(base + path6, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${cfg.apiKey}`, "user-agent": "nyquest-claude-mcp/0.3.0" },
       body: JSON.stringify(body),
@@ -713,10 +755,13 @@ async function syncLevel(cfg = loadConfig()) {
 }
 
 // src/hook.ts
+var TARGETED_READ = /^\s*(?:grep|rg|sed\s+-n|head|tail|awk|Select-String)\b|\|\s*(?:head|tail|Select-String|Select-Object\s+-(?:First|Last))\b|\bGet-Content\b[^|]*-(?:Head|Tail|TotalCount)\b/i;
+var TARGETED_READ_MAX_CHARS = 8e3;
+var NOTE_TOKENS = 85;
 function log(line) {
   try {
-    fs4.mkdirSync(nyquestHome(), { recursive: true });
-    fs4.appendFileSync(path4.join(nyquestHome(), "hook.log"), `${(/* @__PURE__ */ new Date()).toISOString()} ${line}
+    fs5.mkdirSync(nyquestHome(), { recursive: true });
+    fs5.appendFileSync(path5.join(nyquestHome(), "hook.log"), `${(/* @__PURE__ */ new Date()).toISOString()} ${line}
 `);
   } catch {
   }
@@ -724,17 +769,17 @@ function log(line) {
 function learnShape(tool, resp) {
   try {
     const shape = resp === null ? "null" : Array.isArray(resp) ? `array[${resp.length}]<${resp[0] && typeof resp[0] === "object" ? Object.keys(resp[0]).join(",") : typeof resp[0]}>` : typeof resp === "object" ? "{" + Object.keys(resp).map((k) => `${k}:${typeof resp[k]}`).join(",") + "}" : typeof resp;
-    const f = path4.join(nyquestHome(), "shapes.json");
+    const f = path5.join(nyquestHome(), "shapes.json");
     let known = {};
     try {
-      known = JSON.parse(fs4.readFileSync(f, "utf8"));
+      known = JSON.parse(fs5.readFileSync(f, "utf8"));
     } catch {
     }
     const arr = known[tool] || (known[tool] = []);
     if (!arr.includes(shape)) {
       arr.push(shape);
-      fs4.mkdirSync(nyquestHome(), { recursive: true });
-      fs4.writeFileSync(f, JSON.stringify(known, null, 1));
+      fs5.mkdirSync(nyquestHome(), { recursive: true });
+      fs5.writeFileSync(f, JSON.stringify(known, null, 1));
     }
   } catch {
   }
@@ -789,11 +834,16 @@ async function handlePostToolUse(input, cfg) {
   if (ex.text.length < threshold) return void 0;
   const resp = input.tool_response;
   const persisted = !!(resp && typeof resp === "object" && (resp.persistedOutputPath || resp.persistedOutputSize));
-  if (persisted || ex.text.includes("<persisted-output>") || tool === "Bash" && ex.text.length >= 3e4) {
+  if (persisted || ex.text.includes("<persisted-output>") || tool === "Bash" && ex.text.length >= bashPersistLimit(input.cwd)) {
     recordSkip(session, "already-persisted-by-claude-code");
     return void 0;
   }
   const command = commandOf(tool, input.tool_input);
+  const bare = command ? command.replace(/^\s*cd\s+[^&;|]+(?:&&|;)\s*/, "") : void 0;
+  if (bare && TARGETED_READ.test(bare) && ex.text.length < TARGETED_READ_MAX_CHARS) {
+    recordSkip(session, "targeted-read");
+    return void 0;
+  }
   let { cls, digest, lines } = makeDigest(ex.text, tool, command);
   if (cls === "code" && !codeParkingEnabled(cfg.level)) {
     recordSkip(session, "code-untouched");
@@ -818,8 +868,12 @@ async function handlePostToolUse(input, cfg) {
       }
     }
   }
-  if (digest.length >= ex.text.length * 0.85) {
-    recordSkip(session, "digest-not-smaller");
+  const footerChars = footer("nyq:000000", lines, ex.text.length, cls, method).length;
+  const originalTokens = estimateTokens(ex.text.length);
+  const replacementTokens = estimateTokens(digest.length + footerChars);
+  const netSaved = originalTokens - replacementTokens - (cfg.showSavings ? NOTE_TOKENS : 0);
+  if (netSaved < cfg.minSavingTokens || replacementTokens > originalTokens * 0.7) {
+    recordSkip(session, "saving-too-small");
     return void 0;
   }
   const entry = park(session, ex.text, { tool, command, cls, digestChars: digest.length });
@@ -893,9 +947,11 @@ if (require.main === module) {
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
   DEFAULTS,
+  DEFAULT_PERSIST_LIMIT,
   ERR_RE,
   NEVER_PARK,
   REMOTE_OK,
+  bashPersistLimit,
   classify,
   codeParkingEnabled,
   digestCode,
@@ -916,6 +972,7 @@ if (require.main === module) {
   locate,
   makeDigest,
   park,
+  persistLimit,
   purgeOld,
   readParked,
   redact,
