@@ -120,16 +120,22 @@ export async function reportParks(events: ParkEvent[], cfg: Config = loadConfig(
 export interface RemoteSettings {
   level: number | null;
   updated_at: string | null;
+  /** Newest plugin release the platform knows about, when it reports one (optional field `latest_version`). */
+  latestVersion?: string | null;
 }
 
 export async function getSettings(cfg: Config = loadConfig(), timeoutMs = 4000): Promise<RemoteSettings | undefined> {
   if (!fullMode(cfg)) return undefined;
   const base = (cfg.apiBase || process.env.NYQUEST_API_BASE || DEFAULT_BASE).replace(/\/$/, "");
   try {
-    const r = await fetch(`${base}/user/plugin/settings`, { headers: { authorization: `Bearer ${cfg.apiKey}` }, signal: AbortSignal.timeout(timeoutMs) });
+    const r = await fetch(`${base}/user/plugin/settings`, { headers: { authorization: `Bearer ${cfg.apiKey}`, "user-agent": `nyquest-claude-mcp/${VERSION}` }, signal: AbortSignal.timeout(timeoutMs) });
     if (!r.ok) return undefined;
-    const j = (await r.json()) as RemoteSettings;
-    return { level: typeof j.level === "number" ? j.level : null, updated_at: typeof j.updated_at === "string" ? j.updated_at : null };
+    const j = (await r.json()) as RemoteSettings & { latest_version?: unknown };
+    return {
+      level: typeof j.level === "number" ? j.level : null,
+      updated_at: typeof j.updated_at === "string" ? j.updated_at : null,
+      latestVersion: typeof j.latest_version === "string" ? j.latest_version : null,
+    };
   } catch {
     return undefined;
   }

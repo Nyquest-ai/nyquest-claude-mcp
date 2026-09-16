@@ -14,6 +14,7 @@ import { estimateTokens, fmt } from "./tokens";
 import { fullMode, condense, reportParks } from "./api";
 import * as api from "./api";
 import { syncLevel } from "./sync";
+import { updateAvailable } from "./update";
 
 /**
  * Targeted reads: grep, sed -n, head, tail, awk, their PowerShell equivalents, or
@@ -192,17 +193,26 @@ async function sessionStart(input: HookInput, cfg: Config): Promise<string> {
   const mode = fullMode(cfg) ? "full" : "local";
   // Full mode: reconcile the slider with the website (last writer wins). Bounded, fail-open.
   let synced = "";
+  let remoteLatest: string | null | undefined;
   try {
     const s = await syncLevel(cfg);
+    remoteLatest = s.latestVersion;
     if (s.action === "pulled") { cfg.level = s.level; synced = ` Level ${s.level} pulled from your Nyquest account settings.`; }
     else if (s.action === "pushed") synced = " Level published to your Nyquest account settings.";
   } catch { /* offline or no key */ }
+  // Update nudge: this build against the marketplace catalog Claude Code keeps on disk
+  // (no network), and against the version the platform reported above in full mode.
+  let update = "";
+  try {
+    const u = updateAvailable({ remoteLatest });
+    if (u) update = ` Nyquest ${u.latest} is available (this session runs ${u.installed}): ${u.command}, then /reload-plugins.`;
+  } catch { /* never block the status line */ }
   const l = loadLedger(input.session_id || "unknown");
   const s = summarize(l);
   const prior = s.parks ? ` This session so far: ${s.parks} parked, ${s.recalls} recalls.` : "";
-  if (!cfg.enabled) return `Nyquest context manager: OFF (NYQUEST_COMPRESS=off or disabled in ~/.nyquest/config.json). Say "turn Nyquest on" to re-enable.`;
+  if (!cfg.enabled) return `Nyquest context manager: OFF (NYQUEST_COMPRESS=off or disabled in ~/.nyquest/config.json). Say "turn Nyquest on" to re-enable.${update}`;
   const hint = mode === "local" ? " Full mode (free, adds platform condensation and recall(ask=...)): /nyquest:setup." : "";
-  return `Nyquest context manager: ${mode} mode, level ${cfg.level} (/nyquest:level to change), results over ~${fmt(estimateTokens(thresholdFor(cfg.level)))} tokens are parked with a digest; use the nyquest recall tool for exact text. Store: ${size.sessions} sessions, ${fmt(Math.round(size.bytes / 1024))} KB${removed ? `, purged ${removed} old` : ""}.${prior}${synced}${hint}`;
+  return `Nyquest context manager: ${mode} mode, level ${cfg.level} (/nyquest:level to change), results over ~${fmt(estimateTokens(thresholdFor(cfg.level)))} tokens are parked with a digest; use the nyquest recall tool for exact text. Store: ${size.sessions} sessions, ${fmt(Math.round(size.bytes / 1024))} KB${removed ? `, purged ${removed} old` : ""}.${prior}${synced}${update}${hint}`;
 }
 
 async function main(): Promise<void> {

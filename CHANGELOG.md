@@ -31,6 +31,13 @@ Safety, quality and release-hygiene release following the 2026-09-15 readiness a
 - The hand-off to Claude Code's own persisted output follows `bashOutputMaxChars` from the
   user's and the project's `settings.json` instead of a fixed 30,000 characters.
 
+### Updates
+
+- The session-start line says when a newer version is available and which command installs
+  it. The check is local: the plugin compares its version with the marketplace catalog Claude
+  Code keeps on disk. In full mode the platform's settings response may add `latest_version`,
+  which covers catalogs that have not been refreshed yet. Claude Code performs the update.
+
 ### Robustness
 
 - Store: one metadata file per parked entry; there is no shared index to race on. Sessions

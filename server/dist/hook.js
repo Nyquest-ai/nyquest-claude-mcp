@@ -35,7 +35,7 @@ __export(hook_exports, {
 });
 module.exports = __toCommonJS(hook_exports);
 var fs5 = __toESM(require("node:fs"));
-var path6 = __toESM(require("node:path"));
+var path7 = __toESM(require("node:path"));
 
 // src/config.ts
 var fs2 = __toESM(require("node:fs"));
@@ -654,7 +654,7 @@ function fullMode(cfg = loadConfig()) {
   return Boolean(cfg.apiKey && cfg.apiKey.startsWith("nq-v1-"));
 }
 var lastError;
-async function post(cfg, path7, body, timeoutMs) {
+async function post(cfg, path8, body, timeoutMs) {
   lastError = void 0;
   if (!fullMode(cfg)) {
     lastError = "not-full-mode";
@@ -664,7 +664,7 @@ async function post(cfg, path7, body, timeoutMs) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const r = await fetch(base + path7, {
+    const r = await fetch(base + path8, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${cfg.apiKey}`, "user-agent": `nyquest-claude-mcp/${VERSION}` },
       body: JSON.stringify(body),
@@ -696,10 +696,14 @@ async function getSettings(cfg = loadConfig(), timeoutMs = 4e3) {
   if (!fullMode(cfg)) return void 0;
   const base = (cfg.apiBase || process.env.NYQUEST_API_BASE || DEFAULT_BASE).replace(/\/$/, "");
   try {
-    const r = await fetch(`${base}/user/plugin/settings`, { headers: { authorization: `Bearer ${cfg.apiKey}` }, signal: AbortSignal.timeout(timeoutMs) });
+    const r = await fetch(`${base}/user/plugin/settings`, { headers: { authorization: `Bearer ${cfg.apiKey}`, "user-agent": `nyquest-claude-mcp/${VERSION}` }, signal: AbortSignal.timeout(timeoutMs) });
     if (!r.ok) return void 0;
     const j = await r.json();
-    return { level: typeof j.level === "number" ? j.level : null, updated_at: typeof j.updated_at === "string" ? j.updated_at : null };
+    return {
+      level: typeof j.level === "number" ? j.level : null,
+      updated_at: typeof j.updated_at === "string" ? j.updated_at : null,
+      latestVersion: typeof j.latest_version === "string" ? j.latest_version : null
+    };
   } catch {
     return void 0;
   }
@@ -730,17 +734,67 @@ async function syncLevel(cfg = loadConfig()) {
   const remoteAt = remote.updated_at ? Date.parse(remote.updated_at) : 0;
   if (remote.level === null) {
     const r2 = await putSettings(cfg.level, cfg);
-    return { action: r2 ? "pushed" : "skipped", level: cfg.level };
+    return { action: r2 ? "pushed" : "skipped", level: cfg.level, latestVersion: remote.latestVersion };
   }
-  if (Math.abs(remote.level - cfg.level) < 5e-3) return { action: "same", level: cfg.level };
+  if (Math.abs(remote.level - cfg.level) < 5e-3) return { action: "same", level: cfg.level, latestVersion: remote.latestVersion };
   if (remoteAt >= localAt) {
     cfg.level = clamp01(remote.level);
     cfg.levelUpdatedAt = remote.updated_at || (/* @__PURE__ */ new Date()).toISOString();
     saveConfig(cfg);
-    return { action: "pulled", level: cfg.level };
+    return { action: "pulled", level: cfg.level, latestVersion: remote.latestVersion };
   }
   const r = await putSettings(cfg.level, cfg);
-  return { action: r ? "pushed" : "skipped", level: cfg.level };
+  return { action: r ? "pushed" : "skipped", level: cfg.level, latestVersion: remote.latestVersion };
+}
+
+// src/update.ts
+var path6 = __toESM(require("node:path"));
+var os3 = __toESM(require("node:os"));
+var PLUGIN_NAME = "nyquest";
+var REPO_HINT = "nyquest-claude-mcp";
+function compareVersions(a, b) {
+  const parse = (v) => v.trim().replace(/^v/i, "").split(/[-+]/)[0].split(".").map((x) => parseInt(x, 10) || 0);
+  const pa = parse(a), pb = parse(b);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] || 0) - (pb[i] || 0);
+    if (d) return d < 0 ? -1 : 1;
+  }
+  return 0;
+}
+function claudeConfigDir() {
+  return process.env.CLAUDE_CONFIG_DIR || path6.join(os3.homedir(), ".claude");
+}
+function catalogVersions(configDir = claudeConfigDir()) {
+  const pluginsDir = path6.join(configDir, "plugins");
+  const installed = readJsonFile(path6.join(pluginsDir, "installed_plugins.json"));
+  const known = readJsonFile(path6.join(pluginsDir, "known_marketplaces.json")) || {};
+  const out = [];
+  for (const key of Object.keys(installed?.plugins || {})) {
+    if (!key.startsWith(PLUGIN_NAME + "@")) continue;
+    const marketplace = key.slice(PLUGIN_NAME.length + 1);
+    const loc = known[marketplace]?.installLocation;
+    if (!loc) continue;
+    const catalog = readJsonFile(path6.join(loc, ".claude-plugin", "marketplace.json"));
+    const entry = (catalog?.plugins || []).find((p) => p.name === PLUGIN_NAME && JSON.stringify(p.source || "").includes(REPO_HINT));
+    if (entry && typeof entry.version === "string") out.push({ marketplace, version: entry.version });
+  }
+  return out;
+}
+function updateAvailable(opts = {}) {
+  const installed = opts.installed || VERSION;
+  const catalogs = catalogVersions(opts.configDir);
+  let best;
+  for (const c of catalogs) {
+    if (compareVersions(c.version, installed) > 0 && (!best || compareVersions(c.version, best.latest) > 0)) {
+      best = { installed, latest: c.version, marketplace: c.marketplace, command: `/plugin update ${PLUGIN_NAME}@${c.marketplace}` };
+    }
+  }
+  const remote = opts.remoteLatest;
+  if (remote && compareVersions(remote, installed) > 0 && (!best || compareVersions(remote, best.latest) > 0)) {
+    const marketplace = best?.marketplace || catalogs[0]?.marketplace || PLUGIN_NAME;
+    best = { installed, latest: remote, marketplace, command: `/plugin marketplace update ${marketplace}, then /plugin update ${PLUGIN_NAME}@${marketplace}` };
+  }
+  return best;
 }
 
 // src/hook.ts
@@ -750,7 +804,7 @@ var NOTE_TOKENS = 85;
 function log(line) {
   try {
     fs5.mkdirSync(nyquestHome(), { recursive: true });
-    fs5.appendFileSync(path6.join(nyquestHome(), "hook.log"), `${(/* @__PURE__ */ new Date()).toISOString()} ${line}
+    fs5.appendFileSync(path7.join(nyquestHome(), "hook.log"), `${(/* @__PURE__ */ new Date()).toISOString()} ${line}
 `);
   } catch {
   }
@@ -758,7 +812,7 @@ function log(line) {
 function learnShape(tool, resp) {
   try {
     const shape = resp === null ? "null" : Array.isArray(resp) ? `array[${resp.length}]<${resp[0] && typeof resp[0] === "object" ? Object.keys(resp[0]).join(",") : typeof resp[0]}>` : typeof resp === "object" ? "{" + Object.keys(resp).map((k) => `${k}:${typeof resp[k]}`).join(",") + "}" : typeof resp;
-    const f = path6.join(nyquestHome(), "shapes.json");
+    const f = path7.join(nyquestHome(), "shapes.json");
     const known = readJsonFile(f) || {};
     const arr = known[tool] || (known[tool] = []);
     if (!arr.includes(shape)) {
@@ -884,20 +938,28 @@ async function sessionStart(input, cfg) {
   const size = storeSize();
   const mode = fullMode(cfg) ? "full" : "local";
   let synced = "";
+  let remoteLatest;
   try {
     const s2 = await syncLevel(cfg);
+    remoteLatest = s2.latestVersion;
     if (s2.action === "pulled") {
       cfg.level = s2.level;
       synced = ` Level ${s2.level} pulled from your Nyquest account settings.`;
     } else if (s2.action === "pushed") synced = " Level published to your Nyquest account settings.";
   } catch {
   }
+  let update = "";
+  try {
+    const u = updateAvailable({ remoteLatest });
+    if (u) update = ` Nyquest ${u.latest} is available (this session runs ${u.installed}): ${u.command}, then /reload-plugins.`;
+  } catch {
+  }
   const l = loadLedger(input.session_id || "unknown");
   const s = summarize(l);
   const prior = s.parks ? ` This session so far: ${s.parks} parked, ${s.recalls} recalls.` : "";
-  if (!cfg.enabled) return `Nyquest context manager: OFF (NYQUEST_COMPRESS=off or disabled in ~/.nyquest/config.json). Say "turn Nyquest on" to re-enable.`;
+  if (!cfg.enabled) return `Nyquest context manager: OFF (NYQUEST_COMPRESS=off or disabled in ~/.nyquest/config.json). Say "turn Nyquest on" to re-enable.${update}`;
   const hint = mode === "local" ? " Full mode (free, adds platform condensation and recall(ask=...)): /nyquest:setup." : "";
-  return `Nyquest context manager: ${mode} mode, level ${cfg.level} (/nyquest:level to change), results over ~${fmt(estimateTokens(thresholdFor(cfg.level)))} tokens are parked with a digest; use the nyquest recall tool for exact text. Store: ${size.sessions} sessions, ${fmt(Math.round(size.bytes / 1024))} KB${removed ? `, purged ${removed} old` : ""}.${prior}${synced}${hint}`;
+  return `Nyquest context manager: ${mode} mode, level ${cfg.level} (/nyquest:level to change), results over ~${fmt(estimateTokens(thresholdFor(cfg.level)))} tokens are parked with a digest; use the nyquest recall tool for exact text. Store: ${size.sessions} sessions, ${fmt(Math.round(size.bytes / 1024))} KB${removed ? `, purged ${removed} old` : ""}.${prior}${synced}${update}${hint}`;
 }
 async function main() {
   const chunks = [];

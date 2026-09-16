@@ -129,6 +129,18 @@ class, sizes; never the content), so [app.nyquest.ai/savings](https://app.nyques
 shows what the plugin kept out of Claude's context across all your machines, and the level
 slider under Settings → Claude Code plugin stays in step with `/nyquest:level` (last change wins).
 
+### Updates
+
+The session-start line says when a newer version exists, for example
+`Nyquest 0.5.0 is available (this session runs 0.4.0): /plugin update nyquest@nyquest, then /reload-plugins`.
+The plugin never fetches anything to find out: it compares its own version with the marketplace
+catalog Claude Code keeps on disk, and in full mode with the latest version the platform reports
+in the settings response it already receives. Claude Code performs the update.
+
+Third-party marketplaces do not auto-update by default. Refresh the catalog with
+`/plugin marketplace update nyquest`, or enable auto-update for the nyquest marketplace under
+`/plugin` > Marketplaces, and new releases install in the background after each session starts.
+
 ## Modes
 
 - **Local** (default, no account): all digests are deterministic and everything stays on
@@ -145,8 +157,10 @@ slider under Settings → Claude Code plugin stays in step with `/nyquest:level`
   [privacy policy](https://nyquest.ai/privacy). Per-user cap of 400 platform calls a day;
   local mode keeps working when the cap or network is out.
 
-  Endpoints used: `POST /v1/plugin/condense`, `POST /v1/plugin/ask`, `GET /user/plugin/savings`
-  on `https://api.nyquest.ai` (override with `apiBase` in `~/.nyquest/config.json` or `NYQUEST_API_BASE`).
+  Endpoints used: `POST /v1/plugin/condense`, `POST /v1/plugin/ask`, `POST /v1/plugin/events`
+  (counts only), `GET`/`PUT /user/plugin/settings` (level sync at session start; the response may
+  carry `latest_version` for the update nudge) and `GET /user/plugin/savings`, all on
+  `https://api.nyquest.ai` (override with `apiBase` in `~/.nyquest/config.json` or `NYQUEST_API_BASE`).
 
 ## Privacy
 

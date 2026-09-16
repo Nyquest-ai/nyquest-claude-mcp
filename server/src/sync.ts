@@ -7,6 +7,8 @@ export interface SyncResult {
   /** "pulled" (website was newer), "pushed" (local was newer), "same", "skipped" (local mode / offline) */
   action: "pulled" | "pushed" | "same" | "skipped";
   level: number;
+  /** Newest plugin release the platform reports, when it does (full mode only). */
+  latestVersion?: string | null;
 }
 
 export async function syncLevel(cfg: Config = loadConfig()): Promise<SyncResult> {
@@ -18,15 +20,15 @@ export async function syncLevel(cfg: Config = loadConfig()): Promise<SyncResult>
   if (remote.level === null) {
     // Website has never set a level: publish ours so the slider shows the truth.
     const r = await putSettings(cfg.level, cfg);
-    return { action: r ? "pushed" : "skipped", level: cfg.level };
+    return { action: r ? "pushed" : "skipped", level: cfg.level, latestVersion: remote.latestVersion };
   }
-  if (Math.abs(remote.level - cfg.level) < 0.005) return { action: "same", level: cfg.level };
+  if (Math.abs(remote.level - cfg.level) < 0.005) return { action: "same", level: cfg.level, latestVersion: remote.latestVersion };
   if (remoteAt >= localAt) {
     cfg.level = clamp01(remote.level);
     cfg.levelUpdatedAt = remote.updated_at || new Date().toISOString();
     saveConfig(cfg);
-    return { action: "pulled", level: cfg.level };
+    return { action: "pulled", level: cfg.level, latestVersion: remote.latestVersion };
   }
   const r = await putSettings(cfg.level, cfg);
-  return { action: r ? "pushed" : "skipped", level: cfg.level };
+  return { action: r ? "pushed" : "skipped", level: cfg.level, latestVersion: remote.latestVersion };
 }

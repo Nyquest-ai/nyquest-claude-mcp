@@ -14,3 +14,4 @@ export { redact, fullMode } from "./api";
 export { persistLimit, bashPersistLimit, DEFAULT_PERSIST_LIMIT } from "./settings";
 export { writeFileAtomic, writeJsonAtomic, readJsonFile } from "./fsutil";
 export { VERSION } from "./version";
+export { updateAvailable, catalogVersions, compareVersions, PLUGIN_NAME } from "./update";
