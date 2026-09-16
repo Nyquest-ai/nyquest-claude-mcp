@@ -704,7 +704,7 @@ function bashPersistLimit(cwd) {
 }
 
 // src/version.ts
-var VERSION = true ? "0.3.0" : "dev";
+var VERSION = true ? "0.4.0" : "dev";
 
 // src/api.ts
 var DEFAULT_BASE = "https://api.nyquest.ai";

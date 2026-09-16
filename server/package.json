@@ -1,6 +1,6 @@
 {
   "name": "nyquest-claude-mcp-server",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "Nyquest Context Manager for Claude Code: MCP server + PostToolUse hook",
   "license": "MIT",

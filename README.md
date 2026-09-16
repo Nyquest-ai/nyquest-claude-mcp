@@ -6,7 +6,8 @@
 
 ### Context Manager plugin: keep large tool results out of Claude's context
 
-[![Version](https://img.shields.io/badge/version-0.2.4-4fd1c5?style=flat-square&logoColor=0a0b0e)](.claude-plugin/plugin.json)
+[![Version](https://img.shields.io/badge/version-0.4.0-4fd1c5?style=flat-square&logoColor=0a0b0e)](.claude-plugin/plugin.json)
+[![CI](https://github.com/Nyquest-ai/nyquest-claude-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/Nyquest-ai/nyquest-claude-mcp/actions/workflows/ci.yml)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-4fd1c5?style=flat-square&logoColor=0a0b0e)](https://code.claude.com/docs/en/plugins)
 [![MCP](https://img.shields.io/badge/MCP-server-4fd1c5?style=flat-square&logoColor=0a0b0e)](https://modelcontextprotocol.io)
 [![Measured](https://img.shields.io/badge/cost-%E2%88%9257%25%20on%20a%2013--turn%20session-4fd1c5?style=flat-square&logoColor=0a0b0e)](#what-it-does)
@@ -55,6 +56,9 @@ Or from a shell: `claude plugin marketplace add Nyquest-ai/nyquest-claude-market
 every tool, which is how parking works). No account needed for local mode; see Modes
 below for full mode.
 
+When the plugin is listed in Anthropic's plugin directory (`/plugin` > Discover),
+`/plugin install nyquest@claude-plugins-official` installs it without the marketplace step.
+
 Development: `cd server && npm install && npm run build`, then `claude --plugin-dir /path/to/nyquest-claude-mcp`.
 The built `server/dist` is committed so installs need no build step; rebuild before committing.
 
@@ -69,6 +73,8 @@ The built `server/dist` is committed so installs need no build step; rebuild bef
 | Session start | One status line: mode, level, store size. |
 
 Never parked: Read, Edit, Write, Grep, Glob. Read stays exact because Edit depends on it.
+Targeted reads through Bash (`grep`, `sed -n`, `head`, `tail`) under 8 KB are never parked
+either, and nothing is parked unless it saves at least 300 tokens (see Configure).
 
 ## Configure
 
@@ -170,8 +176,16 @@ counts, never content. Policies: [privacy](https://nyquest.ai/privacy), [terms](
 
 ```bash
 cd server
-npm run build      # esbuild -> dist/hook.js, dist/mcp.js, dist/lib.js
-npm test           # node --test
+npm run build          # esbuild -> dist/hook.js, dist/mcp.js, dist/lib.js (runs check-version first)
+npm test               # node --test: digests, classifier, hook, fake-platform full mode, store races
 npm run typecheck
+npm run check-version  # server/package.json must equal .claude-plugin/plugin.json
 node scripts/validate-corpus.js path/to/corpus.jsonl   # digest ratios and error-line retention
 ```
+
+CI runs the same steps on Ubuntu and Windows with Node 20 and 22, and fails when the
+committed `server/dist` differs from a fresh build. To release: bump the version in
+`.claude-plugin/plugin.json` and `server/package.json`, rebuild, commit, run
+`claude plugin tag --push`, then bump the entry in the marketplace repo to match. See
+[CHANGELOG.md](CHANGELOG.md) for what changed and [docs/REVIEWER-KIT.md](docs/REVIEWER-KIT.md)
+for a guided evaluation.

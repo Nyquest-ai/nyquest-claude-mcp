@@ -15,5 +15,9 @@ the current settings and explain the scale:
 - 0.8: results over ~750 tokens, code listings parked with a definition index
 - 1.0: results over ~500 tokens, everything eligible
 
+At every level a park must save at least `minSavingTokens` (default 300) after paying for
+the digest and the parking note, and targeted reads (grep, sed -n, head, tail) under 8 KB
+are never parked.
+
 Report the resulting setting in one line. If the user asks about the API key or full mode
 instead, that is `/nyquest:setup`.
