@@ -1,8 +1,10 @@
 // Per-session savings ledger: ~/.nyquest/sessions/<session>.json
-import * as fs from "node:fs";
+// Statistics only. Writes are atomic and never allowed to fail a park or a recall;
+// under heavy parallelism a counter may be under-reported, never corrupted.
 import * as path from "node:path";
 import { nyquestHome } from "./config";
 import { estimateTokens } from "./tokens";
+import { writeJsonAtomic, readJsonFile } from "./fsutil";
 
 export interface ParkRecord { id: string; tool: string; cls: string; chars: number; digestChars: number; at: string }
 export interface RecallRecord { id: string; mode: string; chars: number; at: string }
@@ -19,35 +21,38 @@ function file(session: string): string {
 }
 
 export function loadLedger(session: string): Ledger {
-  try {
-    return JSON.parse(fs.readFileSync(file(session), "utf8"));
-  } catch {
-    return { session, started: new Date().toISOString(), parks: [], recalls: [], skipped: {} };
-  }
+  const l = readJsonFile<Ledger>(file(session));
+  if (l && Array.isArray(l.parks) && Array.isArray(l.recalls)) return { ...l, skipped: l.skipped || {} };
+  return { session, started: new Date().toISOString(), parks: [], recalls: [], skipped: {} };
 }
 
 export function saveLedger(l: Ledger): void {
-  fs.mkdirSync(path.dirname(file(l.session)), { recursive: true });
-  fs.writeFileSync(file(l.session), JSON.stringify(l, null, 1));
+  writeJsonAtomic(file(l.session), l);
+}
+
+function saveQuietly(l: Ledger): void {
+  try {
+    saveLedger(l);
+  } catch { /* statistics must never block the work */ }
 }
 
 export function recordPark(session: string, r: Omit<ParkRecord, "at">): Ledger {
   const l = loadLedger(session);
   l.parks.push({ ...r, at: new Date().toISOString() });
-  saveLedger(l);
+  saveQuietly(l);
   return l;
 }
 
 export function recordRecall(session: string, r: Omit<RecallRecord, "at">): void {
   const l = loadLedger(session);
   l.recalls.push({ ...r, at: new Date().toISOString() });
-  saveLedger(l);
+  saveQuietly(l);
 }
 
 export function recordSkip(session: string, reason: string): void {
   const l = loadLedger(session);
   l.skipped[reason] = (l.skipped[reason] || 0) + 1;
-  saveLedger(l);
+  saveQuietly(l);
 }
 
 export interface Summary {

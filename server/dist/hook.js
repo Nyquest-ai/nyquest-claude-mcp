@@ -35,12 +35,63 @@ __export(hook_exports, {
 });
 module.exports = __toCommonJS(hook_exports);
 var fs5 = __toESM(require("node:fs"));
-var path5 = __toESM(require("node:path"));
+var path6 = __toESM(require("node:path"));
 
 // src/config.ts
+var fs2 = __toESM(require("node:fs"));
+var path2 = __toESM(require("node:path"));
+var os = __toESM(require("node:os"));
+
+// src/fsutil.ts
 var fs = __toESM(require("node:fs"));
 var path = __toESM(require("node:path"));
-var os = __toESM(require("node:os"));
+var TRANSIENT = /* @__PURE__ */ new Set(["EPERM", "EBUSY", "EACCES", "EAGAIN"]);
+function pause(ms) {
+  try {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  } catch {
+  }
+}
+function writeFileAtomic(file2, data) {
+  const dir = path.dirname(file2);
+  fs.mkdirSync(dir, { recursive: true });
+  const tmp = path.join(dir, `.${path.basename(file2)}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`);
+  fs.writeFileSync(tmp, data);
+  let lastErr;
+  for (let attempt = 0; attempt < 8; attempt++) {
+    try {
+      fs.renameSync(tmp, file2);
+      return;
+    } catch (e) {
+      lastErr = e;
+      if (!TRANSIENT.has(e.code || "")) break;
+      pause(5 + attempt * 10);
+    }
+  }
+  try {
+    fs.unlinkSync(tmp);
+  } catch {
+  }
+  throw lastErr;
+}
+function writeJsonAtomic(file2, value, indent = 1) {
+  writeFileAtomic(file2, JSON.stringify(value, null, indent));
+}
+function readJsonFile(file2) {
+  for (let attempt = 0; attempt < 6; attempt++) {
+    try {
+      return JSON.parse(fs.readFileSync(file2, "utf8"));
+    } catch (e) {
+      const code = e.code;
+      if (code === "ENOENT") return void 0;
+      if (!TRANSIENT.has(code || "") && !(e instanceof SyntaxError)) return void 0;
+      pause(5 + attempt * 10);
+    }
+  }
+  return void 0;
+}
+
+// src/config.ts
 var DEFAULTS = {
   enabled: true,
   level: 0.5,
@@ -51,15 +102,15 @@ var DEFAULTS = {
   minSavingTokens: 300
 };
 function nyquestHome() {
-  return process.env.NYQUEST_HOME || path.join(os.homedir(), ".nyquest");
+  return process.env.NYQUEST_HOME || path2.join(os.homedir(), ".nyquest");
 }
 function configPath() {
-  return path.join(nyquestHome(), "config.json");
+  return path2.join(nyquestHome(), "config.json");
 }
 function loadConfig() {
   let cfg = { ...DEFAULTS, tools: {}, remoteTools: {} };
   try {
-    const raw = fs.readFileSync(configPath(), "utf8");
+    const raw = fs2.readFileSync(configPath(), "utf8");
     const parsed = JSON.parse(raw);
     cfg = { ...cfg, ...parsed, tools: { ...parsed.tools || {} }, remoteTools: { ...parsed.remoteTools || {} } };
   } catch {
@@ -76,11 +127,10 @@ function loadConfig() {
   return cfg;
 }
 function saveConfig(cfg) {
-  fs.mkdirSync(nyquestHome(), { recursive: true });
   const { apiKey, ...rest } = cfg;
   const out = { ...rest };
   if (apiKey) out.apiKey = apiKey;
-  fs.writeFileSync(configPath(), JSON.stringify(out, null, 2));
+  writeJsonAtomic(configPath(), out, 2);
 }
 function clamp01(n) {
   if (!Number.isFinite(n)) return DEFAULTS.level;
@@ -405,13 +455,13 @@ function footer(id, lines, chars, cls = "log", method = "local") {
 }
 
 // src/settings.ts
-var fs2 = __toESM(require("node:fs"));
-var path2 = __toESM(require("node:path"));
+var fs3 = __toESM(require("node:fs"));
+var path3 = __toESM(require("node:path"));
 var os2 = __toESM(require("node:os"));
 var DEFAULT_PERSIST_LIMIT = 3e4;
 function readJson(file2) {
   try {
-    const v = JSON.parse(fs2.readFileSync(file2, "utf8"));
+    const v = JSON.parse(fs3.readFileSync(file2, "utf8"));
     return v && typeof v === "object" ? v : void 0;
   } catch {
     return void 0;
@@ -426,21 +476,21 @@ function persistLimit(...settings) {
   return limit;
 }
 function bashPersistLimit(cwd) {
-  const configDir = process.env.CLAUDE_CONFIG_DIR || path2.join(os2.homedir(), ".claude");
-  const files = [path2.join(configDir, "settings.json")];
-  if (cwd) files.push(path2.join(cwd, ".claude", "settings.json"), path2.join(cwd, ".claude", "settings.local.json"));
+  const configDir = process.env.CLAUDE_CONFIG_DIR || path3.join(os2.homedir(), ".claude");
+  const files = [path3.join(configDir, "settings.json")];
+  if (cwd) files.push(path3.join(cwd, ".claude", "settings.json"), path3.join(cwd, ".claude", "settings.local.json"));
   return persistLimit(...files.map(readJson));
 }
 
 // src/store.ts
-var fs3 = __toESM(require("node:fs"));
-var path3 = __toESM(require("node:path"));
+var fs4 = __toESM(require("node:fs"));
+var path4 = __toESM(require("node:path"));
 var crypto = __toESM(require("node:crypto"));
 function ctxRoot() {
-  return path3.join(nyquestHome(), "ctx");
+  return path4.join(nyquestHome(), "ctx");
 }
 function sessionDir(session) {
-  return path3.join(ctxRoot(), safe(session));
+  return path4.join(ctxRoot(), safe(session));
 }
 function safe(s) {
   return String(s || "unknown").replace(/[^A-Za-z0-9_.-]/g, "_").slice(0, 80);
@@ -448,21 +498,15 @@ function safe(s) {
 function makeId(seed) {
   return "nyq:" + crypto.createHash("sha1").update(seed + ":" + Date.now() + ":" + Math.random()).digest("hex").slice(0, 6);
 }
-function readIndex(dir) {
-  try {
-    return JSON.parse(fs3.readFileSync(path3.join(dir, "index.json"), "utf8"));
-  } catch {
-    return [];
-  }
-}
-function writeIndex(dir, entries) {
-  fs3.writeFileSync(path3.join(dir, "index.json"), JSON.stringify(entries, null, 1));
+function entryFile(dir, id) {
+  return path4.join(dir, id.slice(4) + ".json");
 }
 function park(session, text, meta) {
   const dir = sessionDir(session);
-  fs3.mkdirSync(dir, { recursive: true });
-  const id = makeId(session + meta.tool);
-  fs3.writeFileSync(path3.join(dir, id.slice(4) + ".txt"), text);
+  fs4.mkdirSync(dir, { recursive: true });
+  let id = makeId(session + meta.tool);
+  while (fs4.existsSync(entryFile(dir, id)) || fs4.existsSync(path4.join(dir, id.slice(4) + ".txt"))) id = makeId(session + meta.tool + id);
+  fs4.writeFileSync(path4.join(dir, id.slice(4) + ".txt"), text);
   const entry = {
     id,
     session: safe(session),
@@ -472,25 +516,23 @@ function park(session, text, meta) {
     lines: text.split("\n").length,
     ...meta
   };
-  const idx = readIndex(dir);
-  idx.push(entry);
-  writeIndex(dir, idx);
+  writeJsonAtomic(entryFile(dir, id), entry);
   return entry;
 }
 function purgeOld(retentionDays) {
   let removed = 0;
   const cutoff = Date.now() - retentionDays * 864e5;
   try {
-    for (const d of fs3.readdirSync(ctxRoot())) {
-      const p = path3.join(ctxRoot(), d);
+    for (const d of fs4.readdirSync(ctxRoot())) {
+      const p = path4.join(ctxRoot(), d);
       let mtime = 0;
       try {
-        mtime = fs3.statSync(p).mtimeMs;
+        mtime = fs4.statSync(p).mtimeMs;
       } catch {
         continue;
       }
       if (mtime < cutoff) {
-        fs3.rmSync(p, { recursive: true, force: true });
+        fs4.rmSync(p, { recursive: true, force: true });
         removed++;
       }
     }
@@ -501,12 +543,12 @@ function purgeOld(retentionDays) {
 function storeSize() {
   let sessions = 0, bytes = 0;
   try {
-    for (const d of fs3.readdirSync(ctxRoot())) {
+    for (const d of fs4.readdirSync(ctxRoot())) {
       sessions++;
-      const p = path3.join(ctxRoot(), d);
-      for (const f of fs3.readdirSync(p)) {
+      const p = path4.join(ctxRoot(), d);
+      for (const f of fs4.readdirSync(p)) {
         try {
-          bytes += fs3.statSync(path3.join(p, f)).size;
+          bytes += fs4.statSync(path4.join(p, f)).size;
         } catch {
         }
       }
@@ -517,32 +559,34 @@ function storeSize() {
 }
 
 // src/ledger.ts
-var fs4 = __toESM(require("node:fs"));
-var path4 = __toESM(require("node:path"));
+var path5 = __toESM(require("node:path"));
 function file(session) {
-  return path4.join(nyquestHome(), "sessions", String(session || "unknown").replace(/[^A-Za-z0-9_.-]/g, "_") + ".json");
+  return path5.join(nyquestHome(), "sessions", String(session || "unknown").replace(/[^A-Za-z0-9_.-]/g, "_") + ".json");
 }
 function loadLedger(session) {
-  try {
-    return JSON.parse(fs4.readFileSync(file(session), "utf8"));
-  } catch {
-    return { session, started: (/* @__PURE__ */ new Date()).toISOString(), parks: [], recalls: [], skipped: {} };
-  }
+  const l = readJsonFile(file(session));
+  if (l && Array.isArray(l.parks) && Array.isArray(l.recalls)) return { ...l, skipped: l.skipped || {} };
+  return { session, started: (/* @__PURE__ */ new Date()).toISOString(), parks: [], recalls: [], skipped: {} };
 }
 function saveLedger(l) {
-  fs4.mkdirSync(path4.dirname(file(l.session)), { recursive: true });
-  fs4.writeFileSync(file(l.session), JSON.stringify(l, null, 1));
+  writeJsonAtomic(file(l.session), l);
+}
+function saveQuietly(l) {
+  try {
+    saveLedger(l);
+  } catch {
+  }
 }
 function recordPark(session, r) {
   const l = loadLedger(session);
   l.parks.push({ ...r, at: (/* @__PURE__ */ new Date()).toISOString() });
-  saveLedger(l);
+  saveQuietly(l);
   return l;
 }
 function recordSkip(session, reason) {
   const l = loadLedger(session);
   l.skipped[reason] = (l.skipped[reason] || 0) + 1;
-  saveLedger(l);
+  saveQuietly(l);
 }
 function summarize(l) {
   const byTool = {};
@@ -567,6 +611,9 @@ function summarize(l) {
     byTool
   };
 }
+
+// src/version.ts
+var VERSION = true ? "0.3.0" : "dev";
 
 // src/api.ts
 var DEFAULT_BASE = "https://api.nyquest.ai";
@@ -607,7 +654,7 @@ function fullMode(cfg = loadConfig()) {
   return Boolean(cfg.apiKey && cfg.apiKey.startsWith("nq-v1-"));
 }
 var lastError;
-async function post(cfg, path6, body, timeoutMs) {
+async function post(cfg, path7, body, timeoutMs) {
   lastError = void 0;
   if (!fullMode(cfg)) {
     lastError = "not-full-mode";
@@ -617,9 +664,9 @@ async function post(cfg, path6, body, timeoutMs) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const r = await fetch(base + path6, {
+    const r = await fetch(base + path7, {
       method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${cfg.apiKey}`, "user-agent": "nyquest-claude-mcp/0.3.0" },
+      headers: { "content-type": "application/json", authorization: `Bearer ${cfg.apiKey}`, "user-agent": `nyquest-claude-mcp/${VERSION}` },
       body: JSON.stringify(body),
       signal: ctrl.signal
     });
@@ -703,7 +750,7 @@ var NOTE_TOKENS = 85;
 function log(line) {
   try {
     fs5.mkdirSync(nyquestHome(), { recursive: true });
-    fs5.appendFileSync(path5.join(nyquestHome(), "hook.log"), `${(/* @__PURE__ */ new Date()).toISOString()} ${line}
+    fs5.appendFileSync(path6.join(nyquestHome(), "hook.log"), `${(/* @__PURE__ */ new Date()).toISOString()} ${line}
 `);
   } catch {
   }
@@ -711,17 +758,12 @@ function log(line) {
 function learnShape(tool, resp) {
   try {
     const shape = resp === null ? "null" : Array.isArray(resp) ? `array[${resp.length}]<${resp[0] && typeof resp[0] === "object" ? Object.keys(resp[0]).join(",") : typeof resp[0]}>` : typeof resp === "object" ? "{" + Object.keys(resp).map((k) => `${k}:${typeof resp[k]}`).join(",") + "}" : typeof resp;
-    const f = path5.join(nyquestHome(), "shapes.json");
-    let known = {};
-    try {
-      known = JSON.parse(fs5.readFileSync(f, "utf8"));
-    } catch {
-    }
+    const f = path6.join(nyquestHome(), "shapes.json");
+    const known = readJsonFile(f) || {};
     const arr = known[tool] || (known[tool] = []);
     if (!arr.includes(shape)) {
       arr.push(shape);
-      fs5.mkdirSync(nyquestHome(), { recursive: true });
-      fs5.writeFileSync(f, JSON.stringify(known, null, 1));
+      writeJsonAtomic(f, known);
     }
   } catch {
   }

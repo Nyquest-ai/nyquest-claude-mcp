@@ -2,6 +2,7 @@
 // any error so callers fall back to local behaviour. Secrets are redacted
 // before text leaves the machine.
 import { loadConfig, type Config } from "./config";
+import { VERSION } from "./version";
 
 export const DEFAULT_BASE = "https://api.nyquest.ai";
 
@@ -71,7 +72,7 @@ async function post<T>(cfg: Config, path: string, body: unknown, timeoutMs: numb
   try {
     const r = await fetch(base + path, {
       method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${cfg.apiKey}`, "user-agent": "nyquest-claude-mcp/0.3.0" },
+      headers: { "content-type": "application/json", authorization: `Bearer ${cfg.apiKey}`, "user-agent": `nyquest-claude-mcp/${VERSION}` },
       body: JSON.stringify(body),
       signal: ctrl.signal,
     });

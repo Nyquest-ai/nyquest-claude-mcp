@@ -1,0 +1,48 @@
+name: ci
+
+on:
+  push:
+    branches: [main, "release/**"]
+  pull_request:
+
+jobs:
+  test:
+    name: test (${{ matrix.os }}, node ${{ matrix.node }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node: [20, 22]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      # The bundle in server/dist is committed with LF endings; keep the checkout byte-exact
+      # so the drift check below compares content, not line endings.
+      - run: git config --global core.autocrlf false
+        working-directory: .
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - run: npm run check-version
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - name: Committed bundle must match the source
+        run: git diff --exit-code --ignore-cr-at-eol -- dist
+
+  validate-manifest:
+    name: claude plugin validate
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npx --yes @anthropic-ai/claude-code plugin validate .

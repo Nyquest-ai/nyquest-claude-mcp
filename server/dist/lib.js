@@ -35,7 +35,9 @@ __export(lib_exports, {
   ERR_RE: () => ERR_RE,
   NEVER_PARK: () => NEVER_PARK,
   REMOTE_OK: () => REMOTE_OK,
+  VERSION: () => VERSION,
   bashPersistLimit: () => bashPersistLimit,
+  bumpRecall: () => bumpRecall,
   classify: () => classify,
   codeParkingEnabled: () => codeParkingEnabled,
   digestCode: () => digestCode,
@@ -58,13 +60,16 @@ __export(lib_exports, {
   park: () => park,
   persistLimit: () => persistLimit,
   purgeOld: () => purgeOld,
+  readJsonFile: () => readJsonFile,
   readParked: () => readParked,
   redact: () => redact,
   remoteEligible: () => remoteEligible,
   storeSize: () => storeSize,
   summarize: () => summarize,
   thresholdFor: () => thresholdFor,
-  toolEligible: () => toolEligible
+  toolEligible: () => toolEligible,
+  writeFileAtomic: () => writeFileAtomic,
+  writeJsonAtomic: () => writeJsonAtomic
 });
 module.exports = __toCommonJS(lib_exports);
 
@@ -348,9 +353,60 @@ function footer(id, lines, chars, cls = "log", method = "local") {
 }
 
 // src/config.ts
+var fs2 = __toESM(require("node:fs"));
+var path2 = __toESM(require("node:path"));
+var os = __toESM(require("node:os"));
+
+// src/fsutil.ts
 var fs = __toESM(require("node:fs"));
 var path = __toESM(require("node:path"));
-var os = __toESM(require("node:os"));
+var TRANSIENT = /* @__PURE__ */ new Set(["EPERM", "EBUSY", "EACCES", "EAGAIN"]);
+function pause(ms) {
+  try {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  } catch {
+  }
+}
+function writeFileAtomic(file2, data) {
+  const dir = path.dirname(file2);
+  fs.mkdirSync(dir, { recursive: true });
+  const tmp = path.join(dir, `.${path.basename(file2)}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`);
+  fs.writeFileSync(tmp, data);
+  let lastErr;
+  for (let attempt = 0; attempt < 8; attempt++) {
+    try {
+      fs.renameSync(tmp, file2);
+      return;
+    } catch (e) {
+      lastErr = e;
+      if (!TRANSIENT.has(e.code || "")) break;
+      pause(5 + attempt * 10);
+    }
+  }
+  try {
+    fs.unlinkSync(tmp);
+  } catch {
+  }
+  throw lastErr;
+}
+function writeJsonAtomic(file2, value, indent = 1) {
+  writeFileAtomic(file2, JSON.stringify(value, null, indent));
+}
+function readJsonFile(file2) {
+  for (let attempt = 0; attempt < 6; attempt++) {
+    try {
+      return JSON.parse(fs.readFileSync(file2, "utf8"));
+    } catch (e) {
+      const code = e.code;
+      if (code === "ENOENT") return void 0;
+      if (!TRANSIENT.has(code || "") && !(e instanceof SyntaxError)) return void 0;
+      pause(5 + attempt * 10);
+    }
+  }
+  return void 0;
+}
+
+// src/config.ts
 var DEFAULTS = {
   enabled: true,
   level: 0.5,
@@ -361,15 +417,15 @@ var DEFAULTS = {
   minSavingTokens: 300
 };
 function nyquestHome() {
-  return process.env.NYQUEST_HOME || path.join(os.homedir(), ".nyquest");
+  return process.env.NYQUEST_HOME || path2.join(os.homedir(), ".nyquest");
 }
 function configPath() {
-  return path.join(nyquestHome(), "config.json");
+  return path2.join(nyquestHome(), "config.json");
 }
 function loadConfig() {
   let cfg = { ...DEFAULTS, tools: {}, remoteTools: {} };
   try {
-    const raw = fs.readFileSync(configPath(), "utf8");
+    const raw = fs2.readFileSync(configPath(), "utf8");
     const parsed = JSON.parse(raw);
     cfg = { ...cfg, ...parsed, tools: { ...parsed.tools || {} }, remoteTools: { ...parsed.remoteTools || {} } };
   } catch {
@@ -386,11 +442,10 @@ function loadConfig() {
   return cfg;
 }
 function saveConfig(cfg) {
-  fs.mkdirSync(nyquestHome(), { recursive: true });
   const { apiKey, ...rest } = cfg;
   const out = { ...rest };
   if (apiKey) out.apiKey = apiKey;
-  fs.writeFileSync(configPath(), JSON.stringify(out, null, 2));
+  writeJsonAtomic(configPath(), out, 2);
 }
 function clamp01(n) {
   if (!Number.isFinite(n)) return DEFAULTS.level;
@@ -436,14 +491,14 @@ function remoteEligible(tool, cfg) {
 }
 
 // src/store.ts
-var fs2 = __toESM(require("node:fs"));
-var path2 = __toESM(require("node:path"));
+var fs3 = __toESM(require("node:fs"));
+var path3 = __toESM(require("node:path"));
 var crypto = __toESM(require("node:crypto"));
 function ctxRoot() {
-  return path2.join(nyquestHome(), "ctx");
+  return path3.join(nyquestHome(), "ctx");
 }
 function sessionDir(session) {
-  return path2.join(ctxRoot(), safe(session));
+  return path3.join(ctxRoot(), safe(session));
 }
 function safe(s) {
   return String(s || "unknown").replace(/[^A-Za-z0-9_.-]/g, "_").slice(0, 80);
@@ -451,21 +506,36 @@ function safe(s) {
 function makeId(seed) {
   return "nyq:" + crypto.createHash("sha1").update(seed + ":" + Date.now() + ":" + Math.random()).digest("hex").slice(0, 6);
 }
+function entryFile(dir, id) {
+  return path3.join(dir, id.slice(4) + ".json");
+}
 function readIndex(dir) {
+  let names;
   try {
-    return JSON.parse(fs2.readFileSync(path2.join(dir, "index.json"), "utf8"));
+    names = fs3.readdirSync(dir);
   } catch {
     return [];
   }
-}
-function writeIndex(dir, entries) {
-  fs2.writeFileSync(path2.join(dir, "index.json"), JSON.stringify(entries, null, 1));
+  const byId = /* @__PURE__ */ new Map();
+  if (names.includes("index.json")) {
+    const legacy = readJsonFile(path3.join(dir, "index.json"));
+    if (Array.isArray(legacy)) {
+      for (const e of legacy) if (e && e.id) byId.set(e.id, e);
+    }
+  }
+  for (const f of names) {
+    if (f === "index.json" || f.startsWith(".") || !f.endsWith(".json")) continue;
+    const e = readJsonFile(path3.join(dir, f));
+    if (e && typeof e === "object" && e.id) byId.set(e.id, e);
+  }
+  return [...byId.values()].sort((a, b) => a.created < b.created ? -1 : a.created > b.created ? 1 : 0);
 }
 function park(session, text, meta) {
   const dir = sessionDir(session);
-  fs2.mkdirSync(dir, { recursive: true });
-  const id = makeId(session + meta.tool);
-  fs2.writeFileSync(path2.join(dir, id.slice(4) + ".txt"), text);
+  fs3.mkdirSync(dir, { recursive: true });
+  let id = makeId(session + meta.tool);
+  while (fs3.existsSync(entryFile(dir, id)) || fs3.existsSync(path3.join(dir, id.slice(4) + ".txt"))) id = makeId(session + meta.tool + id);
+  fs3.writeFileSync(path3.join(dir, id.slice(4) + ".txt"), text);
   const entry = {
     id,
     session: safe(session),
@@ -475,9 +545,7 @@ function park(session, text, meta) {
     lines: text.split("\n").length,
     ...meta
   };
-  const idx = readIndex(dir);
-  idx.push(entry);
-  writeIndex(dir, idx);
+  writeJsonAtomic(entryFile(dir, id), entry);
   return entry;
 }
 function locate(id, session) {
@@ -485,20 +553,27 @@ function locate(id, session) {
   const dirs = [];
   if (session) dirs.push(sessionDir(session));
   try {
-    for (const d of fs2.readdirSync(ctxRoot())) dirs.push(path2.join(ctxRoot(), d));
+    for (const d of fs3.readdirSync(ctxRoot())) dirs.push(path3.join(ctxRoot(), d));
   } catch {
   }
   for (const dir of dirs) {
     const entry = readIndex(dir).find((e) => e.id === norm);
     if (entry) {
-      const file2 = path2.join(dir, norm.slice(4) + ".txt");
-      if (fs2.existsSync(file2)) return { entry, file: file2, dir };
+      const file2 = path3.join(dir, norm.slice(4) + ".txt");
+      if (fs3.existsSync(file2)) return { entry, file: file2, dir };
     }
   }
   return void 0;
 }
 function readParked(loc) {
-  return fs2.readFileSync(loc.file, "utf8");
+  return fs3.readFileSync(loc.file, "utf8");
+}
+function bumpRecall(loc) {
+  loc.entry.recalls++;
+  try {
+    writeJsonAtomic(entryFile(loc.dir, loc.entry.id), loc.entry);
+  } catch {
+  }
 }
 function listSession(session) {
   return readIndex(sessionDir(session));
@@ -507,16 +582,16 @@ function purgeOld(retentionDays) {
   let removed = 0;
   const cutoff = Date.now() - retentionDays * 864e5;
   try {
-    for (const d of fs2.readdirSync(ctxRoot())) {
-      const p = path2.join(ctxRoot(), d);
+    for (const d of fs3.readdirSync(ctxRoot())) {
+      const p = path3.join(ctxRoot(), d);
       let mtime = 0;
       try {
-        mtime = fs2.statSync(p).mtimeMs;
+        mtime = fs3.statSync(p).mtimeMs;
       } catch {
         continue;
       }
       if (mtime < cutoff) {
-        fs2.rmSync(p, { recursive: true, force: true });
+        fs3.rmSync(p, { recursive: true, force: true });
         removed++;
       }
     }
@@ -527,12 +602,12 @@ function purgeOld(retentionDays) {
 function storeSize() {
   let sessions = 0, bytes = 0;
   try {
-    for (const d of fs2.readdirSync(ctxRoot())) {
+    for (const d of fs3.readdirSync(ctxRoot())) {
       sessions++;
-      const p = path2.join(ctxRoot(), d);
-      for (const f of fs2.readdirSync(p)) {
+      const p = path3.join(ctxRoot(), d);
+      for (const f of fs3.readdirSync(p)) {
         try {
-          bytes += fs2.statSync(path2.join(p, f)).size;
+          bytes += fs3.statSync(path3.join(p, f)).size;
         } catch {
         }
       }
@@ -543,32 +618,34 @@ function storeSize() {
 }
 
 // src/ledger.ts
-var fs3 = __toESM(require("node:fs"));
-var path3 = __toESM(require("node:path"));
+var path4 = __toESM(require("node:path"));
 function file(session) {
-  return path3.join(nyquestHome(), "sessions", String(session || "unknown").replace(/[^A-Za-z0-9_.-]/g, "_") + ".json");
+  return path4.join(nyquestHome(), "sessions", String(session || "unknown").replace(/[^A-Za-z0-9_.-]/g, "_") + ".json");
 }
 function loadLedger(session) {
-  try {
-    return JSON.parse(fs3.readFileSync(file(session), "utf8"));
-  } catch {
-    return { session, started: (/* @__PURE__ */ new Date()).toISOString(), parks: [], recalls: [], skipped: {} };
-  }
+  const l = readJsonFile(file(session));
+  if (l && Array.isArray(l.parks) && Array.isArray(l.recalls)) return { ...l, skipped: l.skipped || {} };
+  return { session, started: (/* @__PURE__ */ new Date()).toISOString(), parks: [], recalls: [], skipped: {} };
 }
 function saveLedger(l) {
-  fs3.mkdirSync(path3.dirname(file(l.session)), { recursive: true });
-  fs3.writeFileSync(file(l.session), JSON.stringify(l, null, 1));
+  writeJsonAtomic(file(l.session), l);
+}
+function saveQuietly(l) {
+  try {
+    saveLedger(l);
+  } catch {
+  }
 }
 function recordPark(session, r) {
   const l = loadLedger(session);
   l.parks.push({ ...r, at: (/* @__PURE__ */ new Date()).toISOString() });
-  saveLedger(l);
+  saveQuietly(l);
   return l;
 }
 function recordSkip(session, reason) {
   const l = loadLedger(session);
   l.skipped[reason] = (l.skipped[reason] || 0) + 1;
-  saveLedger(l);
+  saveQuietly(l);
 }
 function summarize(l) {
   const byTool = {};
@@ -596,11 +673,11 @@ function summarize(l) {
 
 // src/hook.ts
 var fs5 = __toESM(require("node:fs"));
-var path5 = __toESM(require("node:path"));
+var path6 = __toESM(require("node:path"));
 
 // src/settings.ts
 var fs4 = __toESM(require("node:fs"));
-var path4 = __toESM(require("node:path"));
+var path5 = __toESM(require("node:path"));
 var os2 = __toESM(require("node:os"));
 var DEFAULT_PERSIST_LIMIT = 3e4;
 function readJson(file2) {
@@ -620,11 +697,14 @@ function persistLimit(...settings) {
   return limit;
 }
 function bashPersistLimit(cwd) {
-  const configDir = process.env.CLAUDE_CONFIG_DIR || path4.join(os2.homedir(), ".claude");
-  const files = [path4.join(configDir, "settings.json")];
-  if (cwd) files.push(path4.join(cwd, ".claude", "settings.json"), path4.join(cwd, ".claude", "settings.local.json"));
+  const configDir = process.env.CLAUDE_CONFIG_DIR || path5.join(os2.homedir(), ".claude");
+  const files = [path5.join(configDir, "settings.json")];
+  if (cwd) files.push(path5.join(cwd, ".claude", "settings.json"), path5.join(cwd, ".claude", "settings.local.json"));
   return persistLimit(...files.map(readJson));
 }
+
+// src/version.ts
+var VERSION = true ? "0.3.0" : "dev";
 
 // src/api.ts
 var DEFAULT_BASE = "https://api.nyquest.ai";
@@ -665,7 +745,7 @@ function fullMode(cfg = loadConfig()) {
   return Boolean(cfg.apiKey && cfg.apiKey.startsWith("nq-v1-"));
 }
 var lastError;
-async function post(cfg, path6, body, timeoutMs) {
+async function post(cfg, path7, body, timeoutMs) {
   lastError = void 0;
   if (!fullMode(cfg)) {
     lastError = "not-full-mode";
@@ -675,9 +755,9 @@ async function post(cfg, path6, body, timeoutMs) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const r = await fetch(base + path6, {
+    const r = await fetch(base + path7, {
       method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${cfg.apiKey}`, "user-agent": "nyquest-claude-mcp/0.3.0" },
+      headers: { "content-type": "application/json", authorization: `Bearer ${cfg.apiKey}`, "user-agent": `nyquest-claude-mcp/${VERSION}` },
       body: JSON.stringify(body),
       signal: ctrl.signal
     });
@@ -761,7 +841,7 @@ var NOTE_TOKENS = 85;
 function log(line) {
   try {
     fs5.mkdirSync(nyquestHome(), { recursive: true });
-    fs5.appendFileSync(path5.join(nyquestHome(), "hook.log"), `${(/* @__PURE__ */ new Date()).toISOString()} ${line}
+    fs5.appendFileSync(path6.join(nyquestHome(), "hook.log"), `${(/* @__PURE__ */ new Date()).toISOString()} ${line}
 `);
   } catch {
   }
@@ -769,17 +849,12 @@ function log(line) {
 function learnShape(tool, resp) {
   try {
     const shape = resp === null ? "null" : Array.isArray(resp) ? `array[${resp.length}]<${resp[0] && typeof resp[0] === "object" ? Object.keys(resp[0]).join(",") : typeof resp[0]}>` : typeof resp === "object" ? "{" + Object.keys(resp).map((k) => `${k}:${typeof resp[k]}`).join(",") + "}" : typeof resp;
-    const f = path5.join(nyquestHome(), "shapes.json");
-    let known = {};
-    try {
-      known = JSON.parse(fs5.readFileSync(f, "utf8"));
-    } catch {
-    }
+    const f = path6.join(nyquestHome(), "shapes.json");
+    const known = readJsonFile(f) || {};
     const arr = known[tool] || (known[tool] = []);
     if (!arr.includes(shape)) {
       arr.push(shape);
-      fs5.mkdirSync(nyquestHome(), { recursive: true });
-      fs5.writeFileSync(f, JSON.stringify(known, null, 1));
+      writeJsonAtomic(f, known);
     }
   } catch {
   }
@@ -951,7 +1026,9 @@ if (require.main === module) {
   ERR_RE,
   NEVER_PARK,
   REMOTE_OK,
+  VERSION,
   bashPersistLimit,
+  bumpRecall,
   classify,
   codeParkingEnabled,
   digestCode,
@@ -974,11 +1051,14 @@ if (require.main === module) {
   park,
   persistLimit,
   purgeOld,
+  readJsonFile,
   readParked,
   redact,
   remoteEligible,
   storeSize,
   summarize,
   thresholdFor,
-  toolEligible
+  toolEligible,
+  writeFileAtomic,
+  writeJsonAtomic
 });

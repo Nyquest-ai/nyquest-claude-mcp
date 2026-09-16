@@ -3258,8 +3258,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path5) {
-      let input = path5;
+    function removeDotSegments(path6) {
+      let input = path6;
       const output = [];
       let nextSlash = -1;
       let len = 0;
@@ -3668,8 +3668,8 @@ var require_schemes = __commonJS({
       }
       if (wsComponent.resourceName) {
         const queryIndex = wsComponent.resourceName.indexOf("?");
-        const path5 = queryIndex === -1 ? wsComponent.resourceName : wsComponent.resourceName.slice(0, queryIndex);
-        wsComponent.path = path5 && path5 !== "/" ? path5 : void 0;
+        const path6 = queryIndex === -1 ? wsComponent.resourceName : wsComponent.resourceName.slice(0, queryIndex);
+        wsComponent.path = path6 && path6 !== "/" ? path6 : void 0;
         wsComponent.query = queryIndex === -1 ? void 0 : wsComponent.resourceName.slice(queryIndex + 1);
         wsComponent.resourceName = void 0;
       }
@@ -7672,8 +7672,8 @@ function getErrorMap() {
 
 // node_modules/zod/v3/helpers/parseUtil.js
 var makeIssue = (params) => {
-  const { data, path: path5, errorMaps, issueData } = params;
-  const fullPath = [...path5, ...issueData.path || []];
+  const { data, path: path6, errorMaps, issueData } = params;
+  const fullPath = [...path6, ...issueData.path || []];
   const fullIssue = {
     ...issueData,
     path: fullPath
@@ -7789,11 +7789,11 @@ var errorUtil;
 
 // node_modules/zod/v3/types.js
 var ParseInputLazyPath = class {
-  constructor(parent, value, path5, key) {
+  constructor(parent, value, path6, key) {
     this._cachedPath = [];
     this.parent = parent;
     this.data = value;
-    this._path = path5;
+    this._path = path6;
     this._key = key;
   }
   get path() {
@@ -11431,10 +11431,10 @@ function assignProp(target, prop, value) {
     configurable: true
   });
 }
-function getElementAtPath(obj, path5) {
-  if (!path5)
+function getElementAtPath(obj, path6) {
+  if (!path6)
     return obj;
-  return path5.reduce((acc, key) => acc?.[key], obj);
+  return path6.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -11754,11 +11754,11 @@ function aborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path5, issues) {
+function prefixIssues(path6, issues) {
   return issues.map((iss) => {
     var _a;
     (_a = iss).path ?? (_a.path = []);
-    iss.path.unshift(path5);
+    iss.path.unshift(path6);
     return iss;
   });
 }
@@ -15171,11 +15171,11 @@ function normalizeObjectSchema(schema) {
   }
   return void 0;
 }
-function getDotPath(path5) {
-  if (path5.length === 0) {
+function getDotPath(path6) {
+  if (path6.length === 0) {
     return "object root";
   }
-  return path5.reduce((acc, seg, index) => {
+  return path6.reduce((acc, seg, index) => {
     if (index === 0) {
       return String(seg);
     }
@@ -21431,12 +21431,63 @@ var StdioServerTransport = class {
 
 // src/mcp.ts
 var fs4 = __toESM(require("node:fs"));
-var path4 = __toESM(require("node:path"));
+var path5 = __toESM(require("node:path"));
 
 // src/config.ts
+var fs2 = __toESM(require("node:fs"));
+var path2 = __toESM(require("node:path"));
+var os = __toESM(require("node:os"));
+
+// src/fsutil.ts
 var fs = __toESM(require("node:fs"));
 var path = __toESM(require("node:path"));
-var os = __toESM(require("node:os"));
+var TRANSIENT = /* @__PURE__ */ new Set(["EPERM", "EBUSY", "EACCES", "EAGAIN"]);
+function pause(ms) {
+  try {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  } catch {
+  }
+}
+function writeFileAtomic(file2, data) {
+  const dir = path.dirname(file2);
+  fs.mkdirSync(dir, { recursive: true });
+  const tmp = path.join(dir, `.${path.basename(file2)}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`);
+  fs.writeFileSync(tmp, data);
+  let lastErr;
+  for (let attempt = 0; attempt < 8; attempt++) {
+    try {
+      fs.renameSync(tmp, file2);
+      return;
+    } catch (e) {
+      lastErr = e;
+      if (!TRANSIENT.has(e.code || "")) break;
+      pause(5 + attempt * 10);
+    }
+  }
+  try {
+    fs.unlinkSync(tmp);
+  } catch {
+  }
+  throw lastErr;
+}
+function writeJsonAtomic(file2, value, indent = 1) {
+  writeFileAtomic(file2, JSON.stringify(value, null, indent));
+}
+function readJsonFile(file2) {
+  for (let attempt = 0; attempt < 6; attempt++) {
+    try {
+      return JSON.parse(fs.readFileSync(file2, "utf8"));
+    } catch (e) {
+      const code = e.code;
+      if (code === "ENOENT") return void 0;
+      if (!TRANSIENT.has(code || "") && !(e instanceof SyntaxError)) return void 0;
+      pause(5 + attempt * 10);
+    }
+  }
+  return void 0;
+}
+
+// src/config.ts
 var DEFAULTS = {
   enabled: true,
   level: 0.5,
@@ -21447,15 +21498,15 @@ var DEFAULTS = {
   minSavingTokens: 300
 };
 function nyquestHome() {
-  return process.env.NYQUEST_HOME || path.join(os.homedir(), ".nyquest");
+  return process.env.NYQUEST_HOME || path2.join(os.homedir(), ".nyquest");
 }
 function configPath() {
-  return path.join(nyquestHome(), "config.json");
+  return path2.join(nyquestHome(), "config.json");
 }
 function loadConfig() {
   let cfg = { ...DEFAULTS, tools: {}, remoteTools: {} };
   try {
-    const raw = fs.readFileSync(configPath(), "utf8");
+    const raw = fs2.readFileSync(configPath(), "utf8");
     const parsed = JSON.parse(raw);
     cfg = { ...cfg, ...parsed, tools: { ...parsed.tools || {} }, remoteTools: { ...parsed.remoteTools || {} } };
   } catch {
@@ -21472,11 +21523,10 @@ function loadConfig() {
   return cfg;
 }
 function saveConfig(cfg) {
-  fs.mkdirSync(nyquestHome(), { recursive: true });
   const { apiKey, ...rest } = cfg;
   const out = { ...rest };
   if (apiKey) out.apiKey = apiKey;
-  fs.writeFileSync(configPath(), JSON.stringify(out, null, 2));
+  writeJsonAtomic(configPath(), out, 2);
 }
 function clamp01(n) {
   if (!Number.isFinite(n)) return DEFAULTS.level;
@@ -21498,14 +21548,14 @@ function remoteEligible(tool, cfg) {
 }
 
 // src/store.ts
-var fs2 = __toESM(require("node:fs"));
-var path2 = __toESM(require("node:path"));
+var fs3 = __toESM(require("node:fs"));
+var path3 = __toESM(require("node:path"));
 var crypto = __toESM(require("node:crypto"));
 function ctxRoot() {
-  return path2.join(nyquestHome(), "ctx");
+  return path3.join(nyquestHome(), "ctx");
 }
 function sessionDir(session) {
-  return path2.join(ctxRoot(), safe(session));
+  return path3.join(ctxRoot(), safe(session));
 }
 function safe(s) {
   return String(s || "unknown").replace(/[^A-Za-z0-9_.-]/g, "_").slice(0, 80);
@@ -21513,21 +21563,36 @@ function safe(s) {
 function makeId(seed) {
   return "nyq:" + crypto.createHash("sha1").update(seed + ":" + Date.now() + ":" + Math.random()).digest("hex").slice(0, 6);
 }
+function entryFile(dir, id) {
+  return path3.join(dir, id.slice(4) + ".json");
+}
 function readIndex(dir) {
+  let names;
   try {
-    return JSON.parse(fs2.readFileSync(path2.join(dir, "index.json"), "utf8"));
+    names = fs3.readdirSync(dir);
   } catch {
     return [];
   }
-}
-function writeIndex(dir, entries) {
-  fs2.writeFileSync(path2.join(dir, "index.json"), JSON.stringify(entries, null, 1));
+  const byId = /* @__PURE__ */ new Map();
+  if (names.includes("index.json")) {
+    const legacy = readJsonFile(path3.join(dir, "index.json"));
+    if (Array.isArray(legacy)) {
+      for (const e of legacy) if (e && e.id) byId.set(e.id, e);
+    }
+  }
+  for (const f of names) {
+    if (f === "index.json" || f.startsWith(".") || !f.endsWith(".json")) continue;
+    const e = readJsonFile(path3.join(dir, f));
+    if (e && typeof e === "object" && e.id) byId.set(e.id, e);
+  }
+  return [...byId.values()].sort((a, b) => a.created < b.created ? -1 : a.created > b.created ? 1 : 0);
 }
 function park(session, text2, meta) {
   const dir = sessionDir(session);
-  fs2.mkdirSync(dir, { recursive: true });
-  const id = makeId(session + meta.tool);
-  fs2.writeFileSync(path2.join(dir, id.slice(4) + ".txt"), text2);
+  fs3.mkdirSync(dir, { recursive: true });
+  let id = makeId(session + meta.tool);
+  while (fs3.existsSync(entryFile(dir, id)) || fs3.existsSync(path3.join(dir, id.slice(4) + ".txt"))) id = makeId(session + meta.tool + id);
+  fs3.writeFileSync(path3.join(dir, id.slice(4) + ".txt"), text2);
   const entry = {
     id,
     session: safe(session),
@@ -21537,9 +21602,7 @@ function park(session, text2, meta) {
     lines: text2.split("\n").length,
     ...meta
   };
-  const idx = readIndex(dir);
-  idx.push(entry);
-  writeIndex(dir, idx);
+  writeJsonAtomic(entryFile(dir, id), entry);
   return entry;
 }
 function locate(id, session) {
@@ -21547,27 +21610,26 @@ function locate(id, session) {
   const dirs = [];
   if (session) dirs.push(sessionDir(session));
   try {
-    for (const d of fs2.readdirSync(ctxRoot())) dirs.push(path2.join(ctxRoot(), d));
+    for (const d of fs3.readdirSync(ctxRoot())) dirs.push(path3.join(ctxRoot(), d));
   } catch {
   }
   for (const dir of dirs) {
     const entry = readIndex(dir).find((e) => e.id === norm);
     if (entry) {
-      const file2 = path2.join(dir, norm.slice(4) + ".txt");
-      if (fs2.existsSync(file2)) return { entry, file: file2, dir };
+      const file2 = path3.join(dir, norm.slice(4) + ".txt");
+      if (fs3.existsSync(file2)) return { entry, file: file2, dir };
     }
   }
   return void 0;
 }
 function readParked(loc) {
-  return fs2.readFileSync(loc.file, "utf8");
+  return fs3.readFileSync(loc.file, "utf8");
 }
 function bumpRecall(loc) {
-  const idx = readIndex(loc.dir);
-  const e = idx.find((x) => x.id === loc.entry.id);
-  if (e) {
-    e.recalls++;
-    writeIndex(loc.dir, idx);
+  loc.entry.recalls++;
+  try {
+    writeJsonAtomic(entryFile(loc.dir, loc.entry.id), loc.entry);
+  } catch {
   }
 }
 function listSession(session) {
@@ -21576,11 +21638,10 @@ function listSession(session) {
 function latestSession() {
   let best;
   try {
-    for (const d of fs2.readdirSync(ctxRoot())) {
-      const p = path2.join(ctxRoot(), d, "index.json");
+    for (const d of fs3.readdirSync(ctxRoot())) {
       let mtime = 0;
       try {
-        mtime = fs2.statSync(p).mtimeMs;
+        mtime = fs3.statSync(path3.join(ctxRoot(), d)).mtimeMs;
       } catch {
         continue;
       }
@@ -21593,12 +21654,12 @@ function latestSession() {
 function storeSize() {
   let sessions = 0, bytes = 0;
   try {
-    for (const d of fs2.readdirSync(ctxRoot())) {
+    for (const d of fs3.readdirSync(ctxRoot())) {
       sessions++;
-      const p = path2.join(ctxRoot(), d);
-      for (const f of fs2.readdirSync(p)) {
+      const p = path3.join(ctxRoot(), d);
+      for (const f of fs3.readdirSync(p)) {
         try {
-          bytes += fs2.statSync(path2.join(p, f)).size;
+          bytes += fs3.statSync(path3.join(p, f)).size;
         } catch {
         }
       }
@@ -21609,8 +21670,7 @@ function storeSize() {
 }
 
 // src/ledger.ts
-var fs3 = __toESM(require("node:fs"));
-var path3 = __toESM(require("node:path"));
+var path4 = __toESM(require("node:path"));
 
 // src/tokens.ts
 var CHARS_PER_TOKEN = 3.9;
@@ -21625,29 +21685,32 @@ function fmt(n) {
 
 // src/ledger.ts
 function file(session) {
-  return path3.join(nyquestHome(), "sessions", String(session || "unknown").replace(/[^A-Za-z0-9_.-]/g, "_") + ".json");
+  return path4.join(nyquestHome(), "sessions", String(session || "unknown").replace(/[^A-Za-z0-9_.-]/g, "_") + ".json");
 }
 function loadLedger(session) {
-  try {
-    return JSON.parse(fs3.readFileSync(file(session), "utf8"));
-  } catch {
-    return { session, started: (/* @__PURE__ */ new Date()).toISOString(), parks: [], recalls: [], skipped: {} };
-  }
+  const l = readJsonFile(file(session));
+  if (l && Array.isArray(l.parks) && Array.isArray(l.recalls)) return { ...l, skipped: l.skipped || {} };
+  return { session, started: (/* @__PURE__ */ new Date()).toISOString(), parks: [], recalls: [], skipped: {} };
 }
 function saveLedger(l) {
-  fs3.mkdirSync(path3.dirname(file(l.session)), { recursive: true });
-  fs3.writeFileSync(file(l.session), JSON.stringify(l, null, 1));
+  writeJsonAtomic(file(l.session), l);
+}
+function saveQuietly(l) {
+  try {
+    saveLedger(l);
+  } catch {
+  }
 }
 function recordPark(session, r) {
   const l = loadLedger(session);
   l.parks.push({ ...r, at: (/* @__PURE__ */ new Date()).toISOString() });
-  saveLedger(l);
+  saveQuietly(l);
   return l;
 }
 function recordRecall(session, r) {
   const l = loadLedger(session);
   l.recalls.push({ ...r, at: (/* @__PURE__ */ new Date()).toISOString() });
-  saveLedger(l);
+  saveQuietly(l);
 }
 function summarize(l) {
   const byTool = {};
@@ -21941,6 +22004,9 @@ function footer(id, lines, chars, cls = "log", method = "local") {
   ].join("\n");
 }
 
+// src/version.ts
+var VERSION = true ? "0.3.0" : "dev";
+
 // src/api.ts
 var DEFAULT_BASE = "https://api.nyquest.ai";
 var SECRET_PATTERNS = [
@@ -21980,7 +22046,7 @@ function fullMode(cfg = loadConfig()) {
   return Boolean(cfg.apiKey && cfg.apiKey.startsWith("nq-v1-"));
 }
 var lastError;
-async function post(cfg, path5, body, timeoutMs) {
+async function post(cfg, path6, body, timeoutMs) {
   lastError = void 0;
   if (!fullMode(cfg)) {
     lastError = "not-full-mode";
@@ -21990,9 +22056,9 @@ async function post(cfg, path5, body, timeoutMs) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const r = await fetch(base + path5, {
+    const r = await fetch(base + path6, {
       method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${cfg.apiKey}`, "user-agent": "nyquest-claude-mcp/0.3.0" },
+      headers: { "content-type": "application/json", authorization: `Bearer ${cfg.apiKey}`, "user-agent": `nyquest-claude-mcp/${VERSION}` },
       body: JSON.stringify(body),
       signal: ctrl.signal
     });
@@ -22061,7 +22127,7 @@ function parseRange(r, n) {
   const b = m[2] ? Math.min(n, parseInt(m[2], 10)) : Math.min(n, a + 199);
   return a <= b ? [a, b] : void 0;
 }
-var server = new McpServer({ name: "nyquest", version: "0.3.0" });
+var server = new McpServer({ name: "nyquest", version: VERSION });
 var reg = server.registerTool.bind(server);
 reg(
   "recall",
@@ -22158,7 +22224,7 @@ reg(
     }
   },
   async ({ path: p, kind }) => {
-    const abs = path4.resolve(p);
+    const abs = path5.resolve(p);
     let body;
     try {
       body = fs4.readFileSync(abs, "utf8");
@@ -22190,7 +22256,7 @@ reg(
   async ({ url, question }) => {
     let raw;
     try {
-      const r = await fetch(url, { headers: { "user-agent": "nyquest-claude-mcp/0.2.0", accept: "text/html,text/plain,application/json;q=0.9,*/*;q=0.5" }, signal: AbortSignal.timeout(15e3), redirect: "follow" });
+      const r = await fetch(url, { headers: { "user-agent": `nyquest-claude-mcp/${VERSION}`, accept: "text/html,text/plain,application/json;q=0.9,*/*;q=0.5" }, signal: AbortSignal.timeout(15e3), redirect: "follow" });
       if (!r.ok) return text(`Fetch failed: HTTP ${r.status} for ${url}`);
       const ct = r.headers.get("content-type") || "";
       const bodyText = await r.text();

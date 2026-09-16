@@ -7,6 +7,7 @@ import * as path from "node:path";
 import { loadConfig, thresholdFor, proseThresholdFor, codeParkingEnabled, toolEligible, remoteEligible, nyquestHome, type Config } from "./config";
 import { makeDigest, footer, guarantee, type DigestMethod } from "./digest";
 import { bashPersistLimit } from "./settings";
+import { writeJsonAtomic, readJsonFile } from "./fsutil";
 import { park, purgeOld, storeSize } from "./store";
 import { recordPark, recordSkip, loadLedger, summarize } from "./ledger";
 import { estimateTokens, fmt } from "./tokens";
@@ -50,10 +51,9 @@ function learnShape(tool: string, resp: unknown): void {
       ? `array[${resp.length}]<${resp[0] && typeof resp[0] === "object" ? Object.keys(resp[0] as object).join(",") : typeof resp[0]}>`
       : typeof resp === "object" ? "{" + Object.keys(resp as object).map((k) => `${k}:${typeof (resp as any)[k]}`).join(",") + "}" : typeof resp;
     const f = path.join(nyquestHome(), "shapes.json");
-    let known: Record<string, string[]> = {};
-    try { known = JSON.parse(fs.readFileSync(f, "utf8")); } catch { /* none */ }
+    const known: Record<string, string[]> = readJsonFile<Record<string, string[]>>(f) || {};
     const arr = known[tool] || (known[tool] = []);
-    if (!arr.includes(shape)) { arr.push(shape); fs.mkdirSync(nyquestHome(), { recursive: true }); fs.writeFileSync(f, JSON.stringify(known, null, 1)); }
+    if (!arr.includes(shape)) { arr.push(shape); writeJsonAtomic(f, known); }
   } catch { /* ignore */ }
 }
 

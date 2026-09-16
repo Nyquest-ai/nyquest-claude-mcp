@@ -10,6 +10,7 @@ import { loadLedger, summarize, recordRecall, recordPark } from "./ledger";
 import { makeDigest, footer } from "./digest";
 import { estimateTokens, fmt } from "./tokens";
 import type { ContentClass } from "./classify";
+import { VERSION } from "./version";
 import { fullMode, ask as apiAsk, condense as apiCondense, accountSavings, putSettings } from "./api";
 
 /** Session id: from the environment when Claude Code provides one, else the most recently active parked session. Resolved per call, since sessions start after this process. */
@@ -30,7 +31,7 @@ function parseRange(r: string, n: number): [number, number] | undefined {
   return a <= b ? [a, b] : undefined;
 }
 
-const server = new McpServer({ name: "nyquest", version: "0.3.0" });
+const server = new McpServer({ name: "nyquest", version: VERSION });
 
 // The SDK's registerTool generics trip TS2589 ("excessively deep") with zod 3.25 on
 // schemas with several optional fields. Handlers below are explicitly typed, so a
@@ -170,7 +171,7 @@ reg(
   async ({ url, question }: { url: string; question?: string }) => {
     let raw: string;
     try {
-      const r = await fetch(url, { headers: { "user-agent": "nyquest-claude-mcp/0.2.0", accept: "text/html,text/plain,application/json;q=0.9,*/*;q=0.5" }, signal: AbortSignal.timeout(15000), redirect: "follow" });
+      const r = await fetch(url, { headers: { "user-agent": `nyquest-claude-mcp/${VERSION}`, accept: "text/html,text/plain,application/json;q=0.9,*/*;q=0.5" }, signal: AbortSignal.timeout(15000), redirect: "follow" });
       if (!r.ok) return text(`Fetch failed: HTTP ${r.status} for ${url}`);
       const ct = r.headers.get("content-type") || "";
       const bodyText = await r.text();

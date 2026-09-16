@@ -2,6 +2,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
+import { writeJsonAtomic } from "./fsutil";
 
 export interface Config {
   enabled: boolean;
@@ -69,11 +70,10 @@ export function loadConfig(): Config {
 }
 
 export function saveConfig(cfg: Config): void {
-  fs.mkdirSync(nyquestHome(), { recursive: true });
   const { apiKey, ...rest } = cfg;
   const out: Record<string, unknown> = { ...rest };
   if (apiKey) out.apiKey = apiKey;
-  fs.writeFileSync(configPath(), JSON.stringify(out, null, 2));
+  writeJsonAtomic(configPath(), out, 2);
 }
 
 export function clamp01(n: number): number {

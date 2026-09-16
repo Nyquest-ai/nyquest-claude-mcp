@@ -1,11 +1,13 @@
 {
   "name": "nyquest-claude-mcp-server",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Nyquest Context Manager for Claude Code: MCP server + PostToolUse hook",
   "license": "MIT",
   "type": "commonjs",
   "scripts": {
+    "check-version": "node scripts/check-version.mjs",
+    "prebuild": "node scripts/check-version.mjs",
     "build": "node build.mjs",
     "test": "node --test \"test/**/*.test.js\"",
     "typecheck": "tsc --noEmit"

@@ -50,8 +50,10 @@ In Claude Code:
 ```
 
 Or from a shell: `claude plugin marketplace add Nyquest-ai/nyquest-claude-marketplace` then
-`claude plugin install nyquest@nyquest`. Requires Node 18+ on your PATH. No account needed
-for local mode; see Modes below for full mode.
+`claude plugin install nyquest@nyquest`. Requires Node 18+ on your PATH and Claude Code
+2.1.121 or newer (the first release where a PostToolUse hook can replace the output of
+every tool, which is how parking works). No account needed for local mode; see Modes
+below for full mode.
 
 Development: `cd server && npm install && npm run build`, then `claude --plugin-dir /path/to/nyquest-claude-mcp`.
 The built `server/dist` is committed so installs need no build step; rebuild before committing.
