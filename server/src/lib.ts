@@ -6,7 +6,7 @@ export { digestCode } from "./digest/code";
 export { digestProse } from "./digest/prose";
 export { makeDigest, footer, digestFor, guarantee } from "./digest";
 export { loadConfig, thresholdFor, codeParkingEnabled, toolEligible, remoteEligible, DEFAULTS, NEVER_PARK, REMOTE_OK } from "./config";
-export { park, locate, readParked, bumpRecall, listSession, purgeOld, storeSize } from "./store";
+export { park, locate, readParked, bumpRecall, listSession, purgeOld, purgeLedgers, trimLog, storeSize } from "./store";
 export { loadLedger, summarize } from "./ledger";
 export { estimateTokens } from "./tokens";
 export { extract, handlePostToolUse } from "./hook";

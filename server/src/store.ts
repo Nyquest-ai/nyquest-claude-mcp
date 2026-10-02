@@ -182,6 +182,52 @@ export function purgeOld(retentionDays: number): number {
   return removed;
 }
 
+/** Drop per-session savings ledgers that have been idle for retentionDays. Returns files removed.
+ *
+ * ~/.nyquest/sessions/<session>.json holds counters only, and nothing ever pruned them: they
+ * accumulated for every session that ever ran and outlived the parked entries they describe.
+ * Idleness, not age, is the test here: a session resumed over weeks keeps the counters its own
+ * status line reports, while a session that has gone quiet releases them.
+ */
+export function purgeLedgers(retentionDays: number): number {
+  let removed = 0;
+  const cutoff = Date.now() - retentionDays * 86_400_000;
+  const dir = path.join(nyquestHome(), "sessions");
+  let names: string[];
+  try { names = fs.readdirSync(dir); } catch { return 0; }
+  for (const f of names) {
+    if (!f.endsWith(".json")) continue;
+    const p = path.join(dir, f);
+    try {
+      if (fs.statSync(p).mtimeMs >= cutoff) continue;
+      fs.unlinkSync(p);
+      removed++;
+    } catch { /* leave it for the next sweep */ }
+  }
+  return removed;
+}
+
+/** Keep the hook's own append-only log bounded, newest lines first to go nowhere. Returns true when trimmed.
+ *
+ * Nothing else trims it, so it grew for the life of the install. It records ids, tool names and
+ * sizes, so it also outlived the entries it describes. Parallel hooks append to this file; a trim
+ * can lose a line written in the same instant, which is the right trade for a debug log.
+ */
+export function trimLog(maxBytes = 512 * 1024): boolean {
+  const file = path.join(nyquestHome(), "hook.log");
+  try {
+    if (fs.statSync(file).size <= maxBytes) return false;
+    const keep = Math.floor(maxBytes / 2);
+    const text = fs.readFileSync(file, "utf8");
+    const tail = text.slice(-keep);
+    const from = tail.indexOf("\n");                 // start on a line boundary
+    const tmp = file + "." + process.pid + ".tmp";
+    fs.writeFileSync(tmp, (from >= 0 ? tail.slice(from + 1) : tail));
+    fs.renameSync(tmp, file);
+    return true;
+  } catch { return false; }
+}
+
 /** The most recently active session directory, for when the MCP process has no session id. */
 export function latestSession(): string | undefined {
   let best: { name: string; mtime: number } | undefined;

@@ -62,6 +62,7 @@ __export(lib_exports, {
   makeDigest: () => makeDigest,
   park: () => park,
   persistLimit: () => persistLimit,
+  purgeLedgers: () => purgeLedgers,
   purgeOld: () => purgeOld,
   readJsonFile: () => readJsonFile,
   readParked: () => readParked,
@@ -71,6 +72,7 @@ __export(lib_exports, {
   summarize: () => summarize,
   thresholdFor: () => thresholdFor,
   toolEligible: () => toolEligible,
+  trimLog: () => trimLog,
   updateAvailable: () => updateAvailable,
   writeFileAtomic: () => writeFileAtomic,
   writeJsonAtomic: () => writeJsonAtomic
@@ -654,6 +656,44 @@ function purgeOld(retentionDays) {
   }
   return removed;
 }
+function purgeLedgers(retentionDays) {
+  let removed = 0;
+  const cutoff = Date.now() - retentionDays * 864e5;
+  const dir = path3.join(nyquestHome(), "sessions");
+  let names;
+  try {
+    names = fs3.readdirSync(dir);
+  } catch {
+    return 0;
+  }
+  for (const f of names) {
+    if (!f.endsWith(".json")) continue;
+    const p = path3.join(dir, f);
+    try {
+      if (fs3.statSync(p).mtimeMs >= cutoff) continue;
+      fs3.unlinkSync(p);
+      removed++;
+    } catch {
+    }
+  }
+  return removed;
+}
+function trimLog(maxBytes = 512 * 1024) {
+  const file2 = path3.join(nyquestHome(), "hook.log");
+  try {
+    if (fs3.statSync(file2).size <= maxBytes) return false;
+    const keep = Math.floor(maxBytes / 2);
+    const text = fs3.readFileSync(file2, "utf8");
+    const tail = text.slice(-keep);
+    const from = tail.indexOf("\n");
+    const tmp = file2 + "." + process.pid + ".tmp";
+    fs3.writeFileSync(tmp, from >= 0 ? tail.slice(from + 1) : tail);
+    fs3.renameSync(tmp, file2);
+    return true;
+  } catch {
+    return false;
+  }
+}
 function storeSize() {
   let sessions = 0, bytes = 0;
   try {
@@ -1081,6 +1121,8 @@ async function handlePostToolUse(input, cfg) {
 }
 async function sessionStart(input, cfg) {
   const removed = purgeOld(cfg.retentionDays);
+  purgeLedgers(cfg.retentionDays);
+  trimLog();
   const size = storeSize();
   const mode = fullMode(cfg) ? "full" : "local";
   let synced = "";
@@ -1170,6 +1212,7 @@ if (require.main === module) {
   makeDigest,
   park,
   persistLimit,
+  purgeLedgers,
   purgeOld,
   readJsonFile,
   readParked,
@@ -1179,6 +1222,7 @@ if (require.main === module) {
   summarize,
   thresholdFor,
   toolEligible,
+  trimLog,
   updateAvailable,
   writeFileAtomic,
   writeJsonAtomic

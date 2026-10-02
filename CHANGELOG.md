@@ -24,6 +24,15 @@ Retention fix found by dogfooding 0.4.0 for a fortnight.
   reclaimed 2.2 MB and left exactly the last seven days.
 - The session-start line now says `purged N expired`, counting entries rather than sessions.
 
+### Everything else the plugin writes is bounded too
+
+- Per-session savings ledgers in `~/.nyquest/sessions` were never pruned: one file accumulated
+  for every session that ever ran, outliving the entries it counted. They are released once a
+  session has been idle for `retentionDays`. Idleness rather than age, so a session resumed
+  over weeks keeps the counters its own status line reports.
+- `hook.log` was append-only with nothing to bound it. It is trimmed to its newest lines when
+  it passes 512 KB, cut on a line boundary.
+
 ## 0.4.0 (2026-09-16)
 
 Safety, quality and release-hygiene release following the 2026-09-15 readiness audit.

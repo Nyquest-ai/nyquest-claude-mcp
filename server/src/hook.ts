@@ -8,7 +8,7 @@ import { loadConfig, thresholdFor, proseThresholdFor, codeParkingEnabled, toolEl
 import { makeDigest, footer, guarantee, type DigestMethod } from "./digest";
 import { bashPersistLimit } from "./settings";
 import { writeJsonAtomic, readJsonFile } from "./fsutil";
-import { park, purgeOld, storeSize } from "./store";
+import { park, purgeOld, purgeLedgers, trimLog, storeSize } from "./store";
 import { recordPark, recordSkip, loadLedger, summarize } from "./ledger";
 import { estimateTokens, fmt } from "./tokens";
 import { fullMode, condense, reportParks } from "./api";
@@ -189,6 +189,10 @@ export async function handlePostToolUse(input: HookInput, cfg: Config): Promise<
 
 async function sessionStart(input: HookInput, cfg: Config): Promise<string> {
   const removed = purgeOld(cfg.retentionDays);
+  // Housekeeping on the same clock: counters for sessions that have gone quiet, and this
+  // hook's own log, which nothing else bounds.
+  purgeLedgers(cfg.retentionDays);
+  trimLog();
   const size = storeSize();
   const mode = fullMode(cfg) ? "full" : "local";
   // Full mode: reconcile the slider with the website (last writer wins). Bounded, fail-open.

@@ -118,6 +118,37 @@ test("retention thins a legacy index.json session entry by entry and removes the
   });
 });
 
+test("retention releases the counters of a session that has gone quiet and keeps a session still in use", () => {
+  inOwnStore((home) => {
+    const dir = path.join(home, "sessions");
+    fs.mkdirSync(dir, { recursive: true });
+    const ledger = (name) => JSON.stringify({ session: name, started: "2026-09-01T00:00:00.000Z", parks: [], recalls: [], skipped: {} });
+    fs.writeFileSync(path.join(dir, "quiet.json"), ledger("quiet"));
+    fs.writeFileSync(path.join(dir, "busy.json"), ledger("busy"));
+    const aged = (Date.now() - 30 * 86_400_000) / 1000;
+    fs.utimesSync(path.join(dir, "quiet.json"), aged, aged);
+    // Both started weeks ago; only the idle one has stopped being written to.
+    assert.equal(lib.purgeLedgers(7), 1, "only the idle ledger goes");
+    assert.deepEqual(fs.readdirSync(dir), ["busy.json"], "a long session keeps the counters its own status line reports");
+  });
+});
+
+test("the hook log is bounded, cut on a line boundary, and the newest lines are the ones kept", () => {
+  inOwnStore((home) => {
+    const file = path.join(home, "hook.log");
+    const line = (i) => `2026-10-02T00:00:00.000Z park nyq:${String(i).padStart(6, "0")} tool=Bash cls=log chars=1234 digest=120`;
+    fs.writeFileSync(file, Array.from({ length: 20000 }, (_, i) => line(i)).join("\n") + "\n");
+    const before = fs.statSync(file).size;
+    assert.ok(before > 512 * 1024, "precondition: the log is over the cap");
+    assert.equal(lib.trimLog(), true);
+    const after = fs.readFileSync(file, "utf8");
+    assert.ok(after.length <= before / 2, "trimmed well under the cap");
+    assert.ok(after.startsWith("2026-10-02T"), "starts on a whole line");
+    assert.ok(after.trimEnd().endsWith(line(19999)), "the newest line survives");
+    assert.equal(lib.trimLog(), false, "a log under the cap is left alone");
+  });
+});
+
 test("writeJsonAtomic replaces the target in place; readJsonFile tolerates missing and junk files", () => {
   const file = path.join(TMP, "atomic", "state.json");
   lib.writeJsonAtomic(file, { n: 1 });
