@@ -522,21 +522,72 @@ function park(session, text, meta) {
 function purgeOld(retentionDays) {
   let removed = 0;
   const cutoff = Date.now() - retentionDays * 864e5;
+  let sessions;
   try {
-    for (const d of fs4.readdirSync(ctxRoot())) {
-      const p = path4.join(ctxRoot(), d);
-      let mtime = 0;
-      try {
-        mtime = fs4.statSync(p).mtimeMs;
-      } catch {
-        continue;
+    sessions = fs4.readdirSync(ctxRoot());
+  } catch {
+    return 0;
+  }
+  for (const d of sessions) {
+    const dir = path4.join(ctxRoot(), d);
+    let names;
+    try {
+      names = fs4.readdirSync(dir);
+    } catch {
+      continue;
+    }
+    const legacyFile = path4.join(dir, "index.json");
+    const legacy = names.includes("index.json") ? (readJsonFile(legacyFile) || []).filter((e) => e && e.id) : [];
+    const created = /* @__PURE__ */ new Map();
+    const bases = /* @__PURE__ */ new Set();
+    for (const e of legacy) {
+      bases.add(e.id.slice(4));
+      created.set(e.id.slice(4), e.created);
+    }
+    for (const f of names) {
+      if (f === "index.json" || f.startsWith(".")) continue;
+      if (f.endsWith(".json")) {
+        const base = f.slice(0, -5);
+        bases.add(base);
+        const e = readJsonFile(path4.join(dir, f));
+        if (e && e.created) created.set(base, e.created);
+      } else if (f.endsWith(".txt")) bases.add(f.slice(0, -4));
+    }
+    for (const base of bases) {
+      let at = Date.parse(created.get(base) || "");
+      if (Number.isNaN(at)) {
+        at = Date.now();
+        for (const ext of [".json", ".txt"]) {
+          try {
+            at = Math.min(at, fs4.statSync(path4.join(dir, base + ext)).mtimeMs);
+          } catch {
+          }
+        }
       }
-      if (mtime < cutoff) {
-        fs4.rmSync(p, { recursive: true, force: true });
-        removed++;
+      if (at >= cutoff) continue;
+      let gone = false;
+      for (const ext of [".txt", ".json"]) {
+        try {
+          fs4.unlinkSync(path4.join(dir, base + ext));
+          gone = true;
+        } catch (err) {
+          if (err.code === "ENOENT") continue;
+        }
+      }
+      if (gone) removed++;
+    }
+    if (legacy.length) {
+      const kept = legacy.filter((e) => fs4.existsSync(path4.join(dir, e.id.slice(4) + ".txt")));
+      try {
+        if (!kept.length) fs4.unlinkSync(legacyFile);
+        else if (kept.length !== legacy.length) writeJsonAtomic(legacyFile, kept);
+      } catch {
       }
     }
-  } catch {
+    try {
+      if (!fs4.readdirSync(dir).length) fs4.rmdirSync(dir);
+    } catch {
+    }
   }
   return removed;
 }
@@ -613,7 +664,7 @@ function summarize(l) {
 }
 
 // src/version.ts
-var VERSION = true ? "0.4.0" : "dev";
+var VERSION = true ? "0.4.1" : "dev";
 
 // src/api.ts
 var DEFAULT_BASE = "https://api.nyquest.ai";
@@ -959,7 +1010,7 @@ async function sessionStart(input, cfg) {
   const prior = s.parks ? ` This session so far: ${s.parks} parked, ${s.recalls} recalls.` : "";
   if (!cfg.enabled) return `Nyquest context manager: OFF (NYQUEST_COMPRESS=off or disabled in ~/.nyquest/config.json). Say "turn Nyquest on" to re-enable.${update}`;
   const hint = mode === "local" ? " Full mode (free, adds platform condensation and recall(ask=...)): /nyquest:setup." : "";
-  return `Nyquest context manager: ${mode} mode, level ${cfg.level} (/nyquest:level to change), results over ~${fmt(estimateTokens(thresholdFor(cfg.level)))} tokens are parked with a digest; use the nyquest recall tool for exact text. Store: ${size.sessions} sessions, ${fmt(Math.round(size.bytes / 1024))} KB${removed ? `, purged ${removed} old` : ""}.${prior}${synced}${update}${hint}`;
+  return `Nyquest context manager: ${mode} mode, level ${cfg.level} (/nyquest:level to change), results over ~${fmt(estimateTokens(thresholdFor(cfg.level)))} tokens are parked with a digest; use the nyquest recall tool for exact text. Store: ${size.sessions} sessions, ${fmt(Math.round(size.bytes / 1024))} KB${removed ? `, purged ${removed} expired` : ""}.${prior}${synced}${update}${hint}`;
 }
 async function main() {
   const chunks = [];

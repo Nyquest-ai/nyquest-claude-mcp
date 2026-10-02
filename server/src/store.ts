@@ -112,18 +112,73 @@ export function listSession(session: string): ParkedEntry[] {
   return readIndex(sessionDir(session));
 }
 
-/** Delete session directories older than retentionDays. Returns count removed. */
+/** Delete parked entries older than retentionDays, anywhere in the store. Returns entries removed.
+ *
+ * This used to judge retention on the session DIRECTORY's mtime, which meant a session that
+ * stayed in use never expired anything: every new park refreshed the directory, so its oldest
+ * payloads outlived the promise for as long as the session lived. Measured on a real store
+ * 2026-10-02 with retentionDays 7: 200 payloads past the cutoff, 2.5 MB, the oldest 18 days
+ * old, in a session still being used daily. Retention is a privacy promise, so it is now
+ * applied per entry and the directory's own mtime means nothing.
+ *
+ * A payload with no metadata is swept on its own mtime. 0.3.0 kept one shared index.json, so
+ * its entries are left with no metadata once that file goes and nothing would ever reclaim
+ * them. Anything younger than the cutoff is always left alone, which is what keeps a park
+ * that is still being written (text first, metadata second) safe from this sweep.
+ */
 export function purgeOld(retentionDays: number): number {
   let removed = 0;
   const cutoff = Date.now() - retentionDays * 86_400_000;
-  try {
-    for (const d of fs.readdirSync(ctxRoot())) {
-      const p = path.join(ctxRoot(), d);
-      let mtime = 0;
-      try { mtime = fs.statSync(p).mtimeMs; } catch { continue; }
-      if (mtime < cutoff) { fs.rmSync(p, { recursive: true, force: true }); removed++; }
+  let sessions: string[];
+  try { sessions = fs.readdirSync(ctxRoot()); } catch { return 0; }
+  for (const d of sessions) {
+    const dir = path.join(ctxRoot(), d);
+    let names: string[];
+    try { names = fs.readdirSync(dir); } catch { continue; }
+    const legacyFile = path.join(dir, "index.json");
+    const legacy = names.includes("index.json")
+      ? (readJsonFile<ParkedEntry[]>(legacyFile) || []).filter((e) => e && e.id)
+      : [];
+    // created, per entry base name, from whichever metadata carries it.
+    const created = new Map<string, string | undefined>();
+    const bases = new Set<string>();
+    for (const e of legacy) { bases.add(e.id.slice(4)); created.set(e.id.slice(4), e.created); }
+    for (const f of names) {
+      if (f === "index.json" || f.startsWith(".")) continue;
+      if (f.endsWith(".json")) {
+        const base = f.slice(0, -5);
+        bases.add(base);
+        const e = readJsonFile<ParkedEntry>(path.join(dir, f));
+        if (e && e.created) created.set(base, e.created);
+      } else if (f.endsWith(".txt")) bases.add(f.slice(0, -4));
     }
-  } catch { /* no store */ }
+    for (const base of bases) {
+      let at = Date.parse(created.get(base) || "");
+      if (Number.isNaN(at)) {
+        // No usable metadata: fall back to the files themselves, oldest wins.
+        at = Date.now();
+        for (const ext of [".json", ".txt"]) {
+          try { at = Math.min(at, fs.statSync(path.join(dir, base + ext)).mtimeMs); } catch { /* try the other */ }
+        }
+      }
+      if (at >= cutoff) continue;
+      let gone = false;
+      for (const ext of [".txt", ".json"]) {
+        try { fs.unlinkSync(path.join(dir, base + ext)); gone = true; }
+        catch (err) { if ((err as { code?: string }).code === "ENOENT") continue; }
+      }
+      if (gone) removed++;
+    }
+    if (legacy.length) {
+      // Keep only the legacy entries whose payload survived; drop the file when none did.
+      const kept = legacy.filter((e) => fs.existsSync(path.join(dir, e.id.slice(4) + ".txt")));
+      try {
+        if (!kept.length) fs.unlinkSync(legacyFile);
+        else if (kept.length !== legacy.length) writeJsonAtomic(legacyFile, kept);
+      } catch { /* the next sweep tries again */ }
+    }
+    try { if (!fs.readdirSync(dir).length) fs.rmdirSync(dir); } catch { /* keep it */ }
+  }
   return removed;
 }
 

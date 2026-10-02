@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.4.1 (2026-10-02)
+
+Retention fix found by dogfooding 0.4.0 for a fortnight.
+
+### Parked output is now actually deleted after `retentionDays`
+
+- Retention was judged on the session **directory's** mtime, so a session that stayed in use
+  never expired anything: every new park refreshed the directory and its oldest payloads
+  outlived the promise for as long as the session lived. Only a session left idle for the whole
+  window was ever removed. Entries expire individually now, wherever they live, and a session
+  directory is removed once its last entry goes.
+- A payload whose metadata is missing is swept on its own mtime. 0.3.0 kept one shared
+  `index.json`, so entries written by it are left with no metadata once that file goes, and
+  nothing would ever reclaim them: they were unreachable by `recall` and invisible to
+  retention at the same time.
+- A legacy `index.json` is thinned entry by entry and dropped when none of its payloads
+  survive, so it can no longer advertise a parked id whose text has been deleted.
+- Anything younger than the cutoff is left alone, which keeps a park that is still being
+  written (text first, metadata second) safe from the sweep.
+- Measured on a real store with `retentionDays: 7` the day this shipped: 200 of 225 payloads
+  were past the cutoff, 196 of them unreachable, the oldest 18 days old. The first sweep
+  reclaimed 2.2 MB and left exactly the last seven days.
+- The session-start line now says `purged N expired`, counting entries rather than sessions.
+
 ## 0.4.0 (2026-09-16)
 
 Safety, quality and release-hygiene release following the 2026-09-15 readiness audit.

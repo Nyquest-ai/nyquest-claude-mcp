@@ -66,6 +66,58 @@ test("legacy sessions with a shared index.json are still readable and migrate on
   assert.equal(after[0].recalls, 1, "the per-entry file wins over the legacy index");
 });
 
+// Retention sweeps the whole store, so each of these tests gets a store of its own and can
+// then assert exact counts. nyquestHome() reads NYQUEST_HOME on every call.
+function inOwnStore(body) {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "nyquest-retention-"));
+  process.env.NYQUEST_HOME = home;
+  try { body(home); } finally { process.env.NYQUEST_HOME = TMP; }
+}
+
+test("retention expires entries inside a session that is still in use, and sweeps payloads whose metadata is gone", () => {
+  inOwnStore((home) => {
+    const session = "retention-live";
+    const dir = path.join(home, "ctx", session);
+    fs.mkdirSync(dir, { recursive: true });
+    const stale = new Date(Date.now() - 30 * 86_400_000).toISOString();
+    const write = (base, created, text) => {
+      fs.writeFileSync(path.join(dir, base + ".txt"), text);
+      if (created) fs.writeFileSync(path.join(dir, base + ".json"), JSON.stringify({ id: "nyq:" + base, session, tool: "Bash", cls: "log", chars: text.length, lines: 1, digestChars: 10, created, recalls: 0 }));
+    };
+    write("aaaaaa", stale, logLines(1, 20));                      // expired, metadata intact
+    write("bbbbbb", new Date().toISOString(), logLines(2, 20));   // current
+    write("cccccc", null, logLines(3, 20));                       // 0.3.0 era: payload, no metadata
+    write("dddddd", null, logLines(4, 20));                       // a park whose metadata is still being written
+    const aged = (Date.now() - 30 * 86_400_000) / 1000;
+    fs.utimesSync(path.join(dir, "cccccc.txt"), aged, aged);
+    // The directory itself is fresh, which is all the old implementation ever looked at.
+    assert.equal(lib.purgeOld(7), 2, "the stale entry and the stale orphan go");
+    assert.deepEqual(fs.readdirSync(dir).sort(), ["bbbbbb.json", "bbbbbb.txt", "dddddd.txt"],
+      "current entries survive, and so does an in-flight park");
+    assert.equal(lib.listSession(session).length, 1);
+    assert.equal(lib.purgeOld(7), 0, "a second sweep finds nothing left to do");
+  });
+});
+
+test("retention thins a legacy index.json session entry by entry and removes the directory once empty", () => {
+  inOwnStore((home) => {
+    const session = "retention-legacy";
+    const dir = path.join(home, "ctx", session);
+    fs.mkdirSync(dir, { recursive: true });
+    const entry = (base, created) => ({ id: "nyq:" + base, session, tool: "Bash", cls: "log", chars: 7, lines: 1, digestChars: 7, created, recalls: 0 });
+    const stale = new Date(Date.now() - 30 * 86_400_000).toISOString();
+    fs.writeFileSync(path.join(dir, "eeeeee.txt"), "old one");
+    fs.writeFileSync(path.join(dir, "ffffff.txt"), "new one");
+    fs.writeFileSync(path.join(dir, "index.json"), JSON.stringify([entry("eeeeee", stale), entry("ffffff", new Date().toISOString())]));
+    assert.equal(lib.purgeOld(7), 1, "only the stale legacy entry goes");
+    assert.equal(lib.listSession(session).length, 1, "the surviving legacy entry is still listed");
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, "index.json"), "utf8")).map((e) => e.id), ["nyq:ffffff"],
+      "the legacy index no longer advertises a payload that is gone");
+    assert.equal(lib.purgeOld(0), 1, "a zero retention expires the rest");
+    assert.equal(fs.existsSync(dir), false, "an emptied session directory is removed");
+  });
+});
+
 test("writeJsonAtomic replaces the target in place; readJsonFile tolerates missing and junk files", () => {
   const file = path.join(TMP, "atomic", "state.json");
   lib.writeJsonAtomic(file, { n: 1 });
