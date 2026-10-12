@@ -6,5 +6,10 @@
   "homepage": "https://github.com/Nyquest-ai/nyquest-claude-mcp#readme",
   "repository": "https://github.com/Nyquest-ai/nyquest-claude-mcp",
   "license": "MIT",
+  "icon": "./assets/logo.png",
+  "documentationUrl": "https://github.com/Nyquest-ai/nyquest-claude-mcp#readme",
+  "privacyPolicyUrl": "https://nyquest.ai/privacy",
+  "termsOfServiceUrl": "https://nyquest.ai/terms",
+  "supportUrl": "https://nyquest.ai/support",
   "keywords": ["context", "tokens", "compression", "digest", "recall", "nyquest"]
 }

@@ -11,7 +11,11 @@ a data dump, a fetched page) are paid for again on every later turn. The plugin'
 PostToolUse hook parks such results on disk under `~/.nyquest/ctx/<session>/`, replaces
 them with a deterministic digest (head, every error and warning line, counts, tail) and a
 footer naming the parked id, and gives Claude a `recall` tool that returns exact lines or
-grep matches from the parked text. Nothing is rewritten; the original is one call away.
+grep matches from the parked text. The result Claude sees is replaced; the parked copy is
+kept byte-exact and is one call away. The digest itself is extracted by the plugin, not
+written by a model, except in full mode where web and agent prose may be condensed by the
+platform -- opt-in per tool, labelled as a model-written summary, and listed under what
+leaves the machine below.
 
 ## Setup
 

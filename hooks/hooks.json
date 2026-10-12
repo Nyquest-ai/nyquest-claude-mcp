@@ -1,5 +1,4 @@
 {
-  "description": "Nyquest Context Manager: park large tool results with an exact-line digest; status line at session start.",
   "hooks": {
     "PostToolUse": [
       {
