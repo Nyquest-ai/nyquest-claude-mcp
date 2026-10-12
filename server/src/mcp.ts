@@ -1,7 +1,7 @@
-// Nyquest MCP server (stdio): recall, list_parked, digest_file, savings, configure.
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { z } from "zod";
+// Nyquest MCP server (stdio): recall, list_parked, digest_file, digest_url, savings, configure.
+// The transport and JSON-RPC loop are in ./stdio, so this plugin has no third-party
+// dependencies; see that file for why.
+import { serve, type Schema, type ToolDef, type ToolResult } from "./stdio";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { loadConfig, saveConfig, clamp01, thresholdFor, nyquestHome, remoteEligible } from "./config";
@@ -31,30 +31,30 @@ function parseRange(r: string, n: number): [number, number] | undefined {
   return a <= b ? [a, b] : undefined;
 }
 
-const server = new McpServer({ name: "nyquest", version: VERSION });
-
-// The SDK's registerTool generics trip TS2589 ("excessively deep") with zod 3.25 on
-// schemas with several optional fields. Handlers below are explicitly typed, so a
-// loosely typed registration wrapper loses nothing at runtime.
-type ToolResult = { content: { type: "text"; text: string }[] };
-const reg = server.registerTool.bind(server) as unknown as (
-  name: string,
-  cfg: { description: string; inputSchema: unknown },
-  cb: (args: any) => Promise<ToolResult>,
-) => void;
+// `reg` keeps the call shape the SDK used, so each tool below reads as it did. What
+// changed is that inputSchema is now the JSON Schema that tools/list returns, written
+// out rather than compiled from a zod object at startup.
+const TOOLS: ToolDef[] = [];
+function reg(name: string, cfg: { description: string; inputSchema: Schema }, handler: (args: any) => Promise<ToolResult>): void {
+  TOOLS.push({ name, description: cfg.description, inputSchema: cfg.inputSchema, handler });
+}
 
 reg(
   "recall",
   {
     description: "Retrieve exact text from a tool result that Nyquest parked (ids look like nyq:7f3a9c). Use lines=\"a-b\" for a line range, grep=\"pattern\" (regex) with optional context, or omit both for the first 200 lines. Prefer this over re-running the command.",
-    inputSchema: z.object({
-      id: z.string().describe("Parked id, e.g. nyq:7f3a9c"),
-      lines: z.string().optional().describe("Line range like \"120-180\" or a single line \"57\""),
-      grep: z.string().optional().describe("Regular expression to search for (case-insensitive)"),
-      context: z.number().int().min(0).max(20).optional().describe("Context lines around grep matches (default 2)"),
-      max_matches: z.number().int().min(1).max(500).optional().describe("Cap on grep matches (default 100)"),
-      ask: z.string().optional().describe("Full mode only: a question answered over the whole parked output by a Nyquest-routed model. Sends the parked text (secrets redacted) to the Nyquest platform, so it is allowed for web and agent results only; Bash, PowerShell, file and MCP output stays local unless the user opted the tool in."),
-    }),
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Parked id, e.g. nyq:7f3a9c" },
+        lines: { type: "string", description: "Line range like \"120-180\" or a single line \"57\"" },
+        grep: { type: "string", description: "Regular expression to search for (case-insensitive)" },
+        context: { type: "integer", minimum: 0, maximum: 20, description: "Context lines around grep matches (default 2)" },
+        max_matches: { type: "integer", minimum: 1, maximum: 500, description: "Cap on grep matches (default 100)" },
+        ask: { type: "string", description: "Full mode only: a question answered over the whole parked output by a Nyquest-routed model. Sends the parked text (secrets redacted) to the Nyquest platform, so it is allowed for web and agent results only; Bash, PowerShell, file and MCP output stays local unless the user opted the tool in." },
+      },
+      required: ["id"],
+    },
   },
   async ({ id, lines, grep, context, max_matches, ask }: { id: string; lines?: string; grep?: string; context?: number; max_matches?: number; ask?: string }) => {
     const loc = locate(id, sessionId());
@@ -113,7 +113,7 @@ reg(
 
 reg(
   "list_parked",
-  { description: "List tool results Nyquest has parked in this session (id, tool, class, size, recalls).", inputSchema: {} },
+  { description: "List tool results Nyquest has parked in this session (id, tool, class, size, recalls).", inputSchema: { type: "object", properties: {} } },
   async () => {
     const entries = listSession(sessionId());
     if (!entries.length) return text("Nothing parked in this session yet.");
@@ -127,8 +127,12 @@ reg(
   {
     description: "Read a large file you do not intend to edit and get a compact digest (log/data/code/prose) with the full text parked for recall. Use the Read tool instead when you will edit the file.",
     inputSchema: {
-      path: z.string().describe("Absolute or cwd-relative file path"),
-      kind: z.enum(["auto", "log", "data", "code", "prose"]).optional().describe("Force a digest style (default auto)"),
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Absolute or cwd-relative file path" },
+        kind: { type: "string", enum: ["auto", "log", "data", "code", "prose"], description: "Force a digest style (default auto)" },
+      },
+      required: ["path"],
     },
   },
   async ({ path: p, kind }: { path: string; kind?: "auto" | "log" | "data" | "code" | "prose" }) => {
@@ -163,10 +167,14 @@ reg(
   "digest_url",
   {
     description: "Fetch a web page and get a compact digest (Nyquest semantic condensation in full mode, head/tail locally) with the full text parked for recall. Optionally ask a question and get only the answer. In full mode the page text (secrets redacted) is sent to the Nyquest platform.",
-    inputSchema: z.object({
-      url: z.string().url().describe("http(s) URL"),
-      question: z.string().optional().describe("Full mode: answer this question from the page instead of returning a digest"),
-    }),
+    inputSchema: {
+      type: "object",
+      properties: {
+        url: { type: "string", pattern: "^https?://", description: "an http(s) URL" },
+        question: { type: "string", description: "Full mode: answer this question from the page instead of returning a digest" },
+      },
+      required: ["url"],
+    },
   },
   async ({ url, question }: { url: string; question?: string }) => {
     let raw: string;
@@ -208,7 +216,7 @@ reg(
 
 reg(
   "savings",
-  { description: "Show what Nyquest has kept out of the context this session: parked results, recalls, estimated tokens saved.", inputSchema: {} },
+  { description: "Show what Nyquest has kept out of the context this session: parked results, recalls, estimated tokens saved.", inputSchema: { type: "object", properties: {} } },
   async () => {
     const cfg = loadConfig();
     const s = summarize(loadLedger(sessionId()));
@@ -236,16 +244,19 @@ reg(
   "configure",
   {
     description: "Change Nyquest settings: level (0..1 slider; 0=off, 0.5 default), enabled, showSavings, disable parking for a tool, or allow a tool's prose to be sent to the Nyquest platform in full mode (remoteTool). Persists to ~/.nyquest/config.json.",
-    inputSchema: z.object({
-      level: z.number().min(0).max(1).optional(),
-      enabled: z.boolean().optional(),
-      showSavings: z.boolean().optional(),
-      tool: z.string().optional().describe("Tool name to enable/disable parking for"),
-      toolEnabled: z.boolean().optional(),
-      remoteTool: z.string().optional().describe("Tool name whose prose may (true) or may never (false) be sent to Nyquest for condensation and recall(ask=...) in full mode. By default only WebFetch, WebSearch, Agent and digest_url may."),
-      remoteEnabled: z.boolean().optional(),
-      apiKey: z.string().optional().describe("Nyquest API key (nq-v1-...) to enable full mode; empty string removes it"),
-    }),
+    inputSchema: {
+      type: "object",
+      properties: {
+        level: { type: "number", minimum: 0, maximum: 1, description: "Slider 0..1; 0 parks nothing, 0.5 is the default" },
+        enabled: { type: "boolean" },
+        showSavings: { type: "boolean" },
+        tool: { type: "string", description: "Tool name to enable/disable parking for" },
+        toolEnabled: { type: "boolean" },
+        remoteTool: { type: "string", description: "Tool name whose prose may (true) or may never (false) be sent to Nyquest for condensation and recall(ask=...) in full mode. By default only WebFetch, WebSearch, Agent and digest_url may." },
+        remoteEnabled: { type: "boolean" },
+        apiKey: { type: "string", description: "Nyquest API key (nq-v1-...) to enable full mode; empty string removes it" },
+      },
+    },
   },
   async ({ level, enabled, showSavings, tool, toolEnabled, remoteTool, remoteEnabled, apiKey }: { level?: number; enabled?: boolean; showSavings?: boolean; tool?: string; toolEnabled?: boolean; remoteTool?: string; remoteEnabled?: boolean; apiKey?: string }) => {
     const cfg = loadConfig();
@@ -266,8 +277,4 @@ reg(
   },
 );
 
-async function main() {
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-}
-main().catch((e) => { process.stderr.write(String(e) + "\n"); process.exit(1); });
+serve({ name: "nyquest", version: VERSION }, TOOLS);

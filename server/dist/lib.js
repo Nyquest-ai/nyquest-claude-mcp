@@ -799,7 +799,7 @@ function bashPersistLimit(cwd) {
 }
 
 // src/version.ts
-var VERSION = true ? "0.4.1" : "dev";
+var VERSION = true ? "0.5.0" : "dev";
 
 // src/api.ts
 var DEFAULT_BASE = "https://api.nyquest.ai";

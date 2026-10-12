@@ -1,6 +1,39 @@
 # Changelog
 
-## 0.4.1 (2026-10-02)
+## 0.5.0 (2026-10-12)
+
+No third-party dependencies, and the retention fix that was staged as 0.4.1.
+
+### The MCP SDK is gone
+
+- `@modelcontextprotocol/sdk` and `zod` are no longer dependencies. The stdio JSON-RPC
+  transport is in `server/src/stdio.ts`, about 150 lines. `server/dist/mcp.js` drops from
+  785 KiB to 44 KiB, and the plugin now installs with nothing fetched and nothing built.
+- Why, in directory terms: a non-image file over 256 KiB is held for a reviewer, code the
+  security scan cannot read is held, and every other way of shipping a Node dependency is
+  held too, whether that is a committed lockfile install, a package install from a hook
+  script, or bundling the package's code in. Removing the dependency removes the finding
+  rather than moving it somewhere else.
+- Nothing changes for users: the same six tools, same names, same arguments, same output.
+  `tools/list` now returns the JSON Schema written out in `mcp.ts` instead of one compiled
+  from zod at startup.
+
+### Protocol behaviour, now ours and tested
+
+- The client's protocol revision is echoed back; a tools-only server has nothing else to
+  negotiate.
+- Notifications are never answered, not even to refuse them.
+- A bad argument comes back as tool output the model can read, flagged `isError`, rather
+  than a protocol error it never sees. An unknown tool or method is a JSON-RPC error, and a
+  malformed line is a parse error against id `null`.
+- One failing call can no longer take the server down.
+- In-flight calls drain before the process exits when stdin closes, so the last reply is
+  never lost. The documented smoke test pipes a few frames and closes, and that used to be
+  a race.
+- Four protocol tests drive the real server process and require that every line it writes to
+  stdout parses as an MCP message. 45 tests in total.
+
+## 0.4.1 (2026-10-02, folded into 0.5.0; never published separately)
 
 Retention fix found by dogfooding 0.4.0 for a fortnight.
 
