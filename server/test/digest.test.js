@@ -215,7 +215,9 @@ test("classify treats markdown docs printed with cat as prose", () => {
 test("session start prints a status line", () => {
   const r = spawnSync(process.execPath, [path.join(__dirname, "..", "dist", "hook.js"), "--session-start"], { input: JSON.stringify({ session_id: "s2", hook_event_name: "SessionStart" }), env: { ...process.env, NYQUEST_HOME: TMP }, encoding: "utf8" });
   const out = JSON.parse(r.stdout);
-  assert.ok(out.systemMessage.startsWith("Nyquest context manager: local mode, level 0.5"), r.stdout);
+  // The version leads the line: a session started before an update keeps running the old
+  // build, and this is the one place a user sees which build their session is on.
+  assert.ok(out.systemMessage.startsWith(`Nyquest context manager ${require("../dist/lib.js").VERSION}: local mode, level 0.5`), r.stdout);
   assert.equal(out.hookSpecificOutput.hookEventName, "SessionStart");
   assert.equal(out.hookSpecificOutput.additionalContext, out.systemMessage);
   assert.ok(out.systemMessage.includes("/nyquest:setup"), "local mode hint");

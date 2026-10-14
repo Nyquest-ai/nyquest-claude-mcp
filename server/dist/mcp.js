@@ -57,7 +57,9 @@ function serve(info, tools) {
   let pending = 0;
   let closed = false;
   function exitWhenDrained() {
-    if (closed && pending === 0) process.exit(0);
+    if (!closed || pending > 0) return;
+    process.exitCode = 0;
+    setTimeout(() => process.exit(0), 1e4).unref();
   }
   function handle(line) {
     pending++;
@@ -1025,7 +1027,7 @@ reg(
     const size = storeSize();
     const byTool = Object.entries(s.byTool).map(([t, v]) => `  ${t}: ${v.parks} parked, ~${fmt(estimateTokens(v.chars))} tokens`).join("\n");
     const lines = [
-      `Nyquest context manager \u2014 ${fullMode(cfg) ? "full" : "local"} mode, level ${cfg.level}, enabled=${cfg.enabled}`,
+      `Nyquest context manager ${VERSION} \u2014 ${fullMode(cfg) ? "full" : "local"} mode, level ${cfg.level}, enabled=${cfg.enabled}`,
       `Parked: ${s.parks} results (~${fmt(estimateTokens(s.charsParked))} tokens) replaced by digests (~${fmt(estimateTokens(s.charsDigest))} tokens).`,
       `Recalls: ${s.recalls} (~${fmt(estimateTokens(s.charsRecalled))} tokens brought back).`,
       `Estimated tokens kept out of the context: ~${fmt(s.tokensSavedOnce)} once, and ~${fmt(s.tokensSavedPerTurn)} avoided on every later turn. Estimates use ${3.9} chars/token; real numbers come from /cost.`,

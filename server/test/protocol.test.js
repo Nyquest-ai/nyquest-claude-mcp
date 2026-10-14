@@ -12,18 +12,18 @@ const MCP = path.join(__dirname, "..", "dist", "mcp.js");
 const { VERSION } = require("../dist/lib.js");
 
 /** Pipe frames in, collect every stdout line, and require that each one is JSON. */
-function talk(frames) {
+function talk(frames, env = {}, preload) {
   return new Promise((resolve, reject) => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "nyquest-proto-"));
-    const child = spawn(process.execPath, [MCP], {
-      env: { ...process.env, NYQUEST_HOME: home, NYQUEST_API_KEY: "", CLAUDE_SESSION_ID: "protocol-test" },
+    const child = spawn(process.execPath, preload ? ["-r", preload, MCP] : [MCP], {
+      env: { ...process.env, NYQUEST_HOME: home, NYQUEST_API_KEY: "", CLAUDE_SESSION_ID: "protocol-test", ...env },
       stdio: ["pipe", "pipe", "pipe"],
     });
     let out = "", err = "";
     child.stdout.on("data", (c) => (out += c));
     child.stderr.on("data", (c) => (err += c));
     child.on("error", reject);
-    child.on("close", () => {
+    child.on("close", (code) => {
       const lines = out.split("\n").filter((l) => l.trim());
       const messages = lines.map((l) => {
         try {
@@ -32,7 +32,7 @@ function talk(frames) {
           throw new Error(`stdout carried a line that is not an MCP message: ${l.slice(0, 120)}`);
         }
       });
-      resolve({ messages, stderr: err });
+      resolve({ messages, stderr: err, code });
     });
     // A string frame is written verbatim, so a test can send something that is not JSON.
     child.stdin.end(frames.map((f) => (typeof f === "string" ? f : JSON.stringify(f))).join("\n") + "\n");
@@ -133,4 +133,46 @@ test("the last reply is not lost when the client closes stdin immediately", asyn
   ]);
   assert.equal(messages.length, 2, "both replies arrived");
   assert.match(byId(messages, 2).result.content[0].text, /Nyquest context manager/);
+});
+
+test("after a full-mode network call the server ends by draining, never by process.exit()", async () => {
+  // Regression, 2026-10-14. The server used to end itself with process.exit() once stdin
+  // closed and the last handler settled. On Windows that aborts the process with a libuv
+  // assertion ("!(handle->flags & UV_HANDLE_CLOSING)", src/win/async.c) whenever fetch is still
+  // tearing down a TLS socket, which is the state right after a full-mode `savings` call to the
+  // live platform: 6 of 6 runs crashed. The reply had already gone out, so every assertion about
+  // replies passed and the crash showed only in the exit code.
+  //
+  // That symptom needs a real HTTPS peer, which a test cannot have without committing a private
+  // key. So this checks the rule behind it instead, deterministically and on every OS: a preload
+  // records any process.exit() call, and on the normal path there must be none. It also proves
+  // the event loop really does empty on its own after a network call; if a socket kept it alive,
+  // the last-resort timer would fire process.exit() and the spy would catch that too.
+  const http = require("node:http");
+  const server = http.createServer((req, res) => {
+    if (req.url.startsWith("/user/plugin/savings")) {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ parks: 3, park_tokens_kept_out: 1200, condense_calls: 1, ask_calls: 0, tokens_kept_out: 400, total_tokens_kept_out: 1600, daily_cap: 400 }));
+    } else {
+      res.writeHead(404);
+      res.end();
+    }
+  });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  try {
+    // Assembled at runtime so no credential-shaped literal sits in the repository.
+    const key = ["nq", "v1", "protocol", "test", "0".repeat(24)].join("-");
+    const { messages, stderr, code } = await talk(
+      [{ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "savings", arguments: {} } }],
+      { NYQUEST_API_KEY: key, NYQUEST_API_BASE: `http://127.0.0.1:${server.address().port}` },
+      path.join(__dirname, "fixtures", "exit-spy.js"),
+    );
+    assert.match(byId(messages, 1).result.content[0].text, /Nyquest account \(30 days/, "the network path really ran");
+    assert.doesNotMatch(stderr, /\[exit-spy\]/, "the server must not end itself with process.exit()");
+    assert.doesNotMatch(stderr, /Assertion failed/, stderr);
+    assert.equal(code, 0, `exit code ${code}; stderr: ${stderr.slice(0, 200)}`);
+  } finally {
+    server.closeAllConnections?.();
+    await new Promise((r) => server.close(r));
+  }
 });

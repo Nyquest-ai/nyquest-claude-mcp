@@ -94,12 +94,23 @@ export function serve(info: { name: string; version: string }, tools: ToolDef[])
   const fail = (id: unknown, code: number, message: string) => send({ jsonrpc: "2.0", id, error: { code, message } });
 
   // A client that closes stdin still wants the reply to its last request, and the documented
-  // smoke test pipes a few frames in and closes. So exit when stdin has ended AND no handler
-  // is still running, never mid-call.
+  // smoke test pipes a few frames in and closes. So nothing ends the process while a handler
+  // is running.
+  //
+  // And nothing ends it with process.exit() either. On Windows, process.exit() while fetch is
+  // still closing its sockets trips a libuv assertion ("!(handle->flags & UV_HANDLE_CLOSING)",
+  // src/win/async.c) and the process aborts. Seen 2026-10-14 straight after a full-mode
+  // `savings` call, which is a network request, so it would have crashed at the end of most
+  // full-mode sessions. Once stdin has ended its handle is closed, so after the last handler
+  // settles the event loop empties and Node exits by itself, cleanly. The timer below is the
+  // last resort for a handler that never settles; unref'd, so it can never be what keeps the
+  // process alive, and by the time it fires nothing should still be closing.
   let pending = 0;
   let closed = false;
   function exitWhenDrained(): void {
-    if (closed && pending === 0) process.exit(0);
+    if (!closed || pending > 0) return;
+    process.exitCode = 0;
+    setTimeout(() => process.exit(0), 10_000).unref();
   }
   function handle(line: string): void {
     pending++;

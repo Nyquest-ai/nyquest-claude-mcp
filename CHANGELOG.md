@@ -32,6 +32,18 @@ No third-party dependencies, and the retention fix that was staged as 0.4.1.
 - In-flight calls drain before the process exits when stdin closes, so the last reply is
   never lost. The documented smoke test pipes a few frames and closes, and that used to be
   a race.
+- The server ends by letting its event loop empty, never by `process.exit()`. On Windows,
+  `process.exit()` while `fetch` is still tearing down a TLS socket aborts the process with a
+  libuv assertion, and that is exactly the state after a full-mode call to the platform: an
+  earlier 0.5.0 build crashed on 6 of 6 exits after `savings`. The replies had already gone
+  out, so it showed only in the exit code. A last-resort timer, unref'd, covers a handler
+  that never settles.
+
+### Which build a session is running
+
+- The session-start line and the `savings` tool now lead with the version:
+  `Nyquest context manager 0.5.0: full mode, ...`. A session started before an update keeps
+  its old build until it restarts, and until now nothing inside a session said which one.
 - Four protocol tests drive the real server process and require that every line it writes to
   stdout parses as an MCP message. 45 tests in total.
 

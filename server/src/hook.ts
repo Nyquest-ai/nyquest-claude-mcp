@@ -9,6 +9,7 @@ import { makeDigest, footer, guarantee, type DigestMethod } from "./digest";
 import { bashPersistLimit } from "./settings";
 import { writeJsonAtomic, readJsonFile } from "./fsutil";
 import { park, purgeOld, purgeLedgers, trimLog, storeSize } from "./store";
+import { VERSION } from "./version";
 import { recordPark, recordSkip, loadLedger, summarize } from "./ledger";
 import { estimateTokens, fmt } from "./tokens";
 import { fullMode, condense, reportParks } from "./api";
@@ -214,9 +215,9 @@ async function sessionStart(input: HookInput, cfg: Config): Promise<string> {
   const l = loadLedger(input.session_id || "unknown");
   const s = summarize(l);
   const prior = s.parks ? ` This session so far: ${s.parks} parked, ${s.recalls} recalls.` : "";
-  if (!cfg.enabled) return `Nyquest context manager: OFF (NYQUEST_COMPRESS=off or disabled in ~/.nyquest/config.json). Say "turn Nyquest on" to re-enable.${update}`;
+  if (!cfg.enabled) return `Nyquest context manager ${VERSION}: OFF (NYQUEST_COMPRESS=off or disabled in ~/.nyquest/config.json). Say "turn Nyquest on" to re-enable.${update}`;
   const hint = mode === "local" ? " Full mode (free, adds platform condensation and recall(ask=...)): /nyquest:setup." : "";
-  return `Nyquest context manager: ${mode} mode, level ${cfg.level} (/nyquest:level to change), results over ~${fmt(estimateTokens(thresholdFor(cfg.level)))} tokens are parked with a digest; use the nyquest recall tool for exact text. Store: ${size.sessions} sessions, ${fmt(Math.round(size.bytes / 1024))} KB${removed ? `, purged ${removed} expired` : ""}.${prior}${synced}${update}${hint}`;
+  return `Nyquest context manager ${VERSION}: ${mode} mode, level ${cfg.level} (/nyquest:level to change), results over ~${fmt(estimateTokens(thresholdFor(cfg.level)))} tokens are parked with a digest; use the nyquest recall tool for exact text. Store: ${size.sessions} sessions, ${fmt(Math.round(size.bytes / 1024))} KB${removed ? `, purged ${removed} expired` : ""}.${prior}${synced}${update}${hint}`;
 }
 
 async function main(): Promise<void> {
