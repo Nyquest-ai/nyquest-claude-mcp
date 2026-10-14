@@ -20,8 +20,10 @@ No third-party dependencies, and the retention fix that was staged as 0.4.1.
 
 ### Protocol behaviour, now ours and tested
 
-- The client's protocol revision is echoed back; a tools-only server has nothing else to
-  negotiate.
+- Protocol revision: the client's is echoed only when the server supports it, otherwise the
+  newest supported one (`2025-11-25`) is answered, as the spec requires. That is also exactly
+  what the SDK server did: Claude Code 2.1.295, the desktop app's client, negotiated
+  `2025-11-25` with both, connected, and listed all six tools.
 - Notifications are never answered, not even to refuse them.
 - A bad argument comes back as tool output the model can read, flagged `isError`, rather
   than a protocol error it never sees. An unknown tool or method is a JSON-RPC error, and a

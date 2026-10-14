@@ -69,6 +69,20 @@ test("handshake, tool list, and a call that returns text", async () => {
   assert.equal(messages.length, 3, "a notification gets no reply");
 });
 
+test("a revision the server does not speak is answered with one it does, never echoed", async () => {
+  // Claude Code 2.1.295 asks for a revision newer than 2025-11-25. Echoing it would claim a
+  // protocol era this server does not implement; the spec requires answering with a
+  // supported one, which is also what the SDK server did with that client.
+  const { messages } = await talk([
+    { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2099-01-01" } },
+    { jsonrpc: "2.0", id: 2, method: "initialize", params: { protocolVersion: "2025-03-26" } },
+    { jsonrpc: "2.0", id: 3, method: "initialize", params: {} },
+  ]);
+  assert.equal(byId(messages, 1).result.protocolVersion, "2025-11-25", "an unknown future revision gets the newest supported one");
+  assert.equal(byId(messages, 2).result.protocolVersion, "2025-03-26", "a supported older revision is echoed");
+  assert.equal(byId(messages, 3).result.protocolVersion, "2025-11-25", "no revision asked for, newest supported answered");
+});
+
 test("bad arguments answer as tool output, protocol faults answer as errors, and the server survives both", async () => {
   const { messages } = await talk([
     { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "recall", arguments: {} } },

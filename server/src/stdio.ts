@@ -45,9 +45,16 @@ export interface ToolDef {
   handler: (args: Record<string, any>) => Promise<ToolResult>;
 }
 
-/// The revision this server was written against. A client's own version is echoed when it
-/// sends one, because a tools-only server has nothing version-specific to negotiate.
-const PROTOCOL_VERSION = "2025-06-18";
+/// Revisions this server answers to, newest first. The spec allows echoing the client's
+/// revision only when the server supports it; otherwise the server answers with one it does.
+/// An earlier draft echoed anything, which is wrong in the case that matters most: Claude Code
+/// 2.1.295 (the desktop app's client) asks for a revision newer than 2025-11-25, and echoing it
+/// would claim a protocol era this server does not implement. Observed 2026-10-14 in the
+/// client's own MCP log: against the SDK server this replaced, that client negotiated
+/// "2025-11-25" and connected, labelling it the "legacy" era. Answering the same way keeps the
+/// outcome identical to the server that was already working. The tools surface used here
+/// (tools/list, tools/call, text content) is the same across all four.
+export const SUPPORTED_PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 
 /** The one message shape that may reach stdout. */
 function send(msg: unknown): void {
@@ -122,7 +129,7 @@ export function serve(info: { name: string; version: string }, tools: ToolDef[])
         case "initialize": {
           const asked = params.protocolVersion;
           reply(id, {
-            protocolVersion: typeof asked === "string" && asked ? asked : PROTOCOL_VERSION,
+            protocolVersion: SUPPORTED_PROTOCOL_VERSIONS.includes(asked) ? asked : SUPPORTED_PROTOCOL_VERSIONS[0],
             capabilities: { tools: { listChanged: false } },
             serverInfo: info,
           });

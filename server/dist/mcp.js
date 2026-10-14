@@ -23,7 +23,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 
 // src/stdio.ts
-var PROTOCOL_VERSION = "2025-06-18";
+var SUPPORTED_PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 function send(msg) {
   process.stdout.write(JSON.stringify(msg) + "\n");
 }
@@ -84,7 +84,7 @@ function serve(info, tools) {
         case "initialize": {
           const asked = params.protocolVersion;
           reply(id, {
-            protocolVersion: typeof asked === "string" && asked ? asked : PROTOCOL_VERSION,
+            protocolVersion: SUPPORTED_PROTOCOL_VERSIONS.includes(asked) ? asked : SUPPORTED_PROTOCOL_VERSIONS[0],
             capabilities: { tools: { listChanged: false } },
             serverInfo: info
           });
