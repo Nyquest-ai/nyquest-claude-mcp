@@ -1,6 +1,6 @@
 {
   "name": "nyquest",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Nyquest Context Manager: keeps large tool results out of Claude's context. Parks them locally, leaves an exact-line digest, and lets Claude recall precise slices on demand.",
   "author": { "name": "Nyquest", "url": "https://nyquest.ai" },
   "homepage": "https://github.com/Nyquest-ai/nyquest-claude-mcp#readme",
@@ -11,5 +11,14 @@
   "privacyPolicyUrl": "https://nyquest.ai/privacy",
   "termsOfServiceUrl": "https://nyquest.ai/terms",
   "supportUrl": "https://nyquest.ai/support",
-  "keywords": ["context", "tokens", "compression", "digest", "recall", "nyquest"]
+  "keywords": ["context", "tokens", "compression", "digest", "recall", "nyquest"],
+  "userConfig": {
+    "api_key": {
+      "type": "string",
+      "title": "Nyquest API key (optional)",
+      "description": "Turns on full mode: platform condensation for web and agent prose, recall(ask=...) answers and account savings totals. Free at app.nyquest.ai; it starts with nq-v1-. Leave it empty for local mode, in which the plugin sends nothing to Nyquest.",
+      "sensitive": true,
+      "default": ""
+    }
+  }
 }

@@ -4,6 +4,7 @@ exports.REMOTE_OK = exports.NEVER_PARK = exports.DEFAULTS = void 0;
 exports.nyquestHome = nyquestHome;
 exports.configPath = configPath;
 exports.loadConfig = loadConfig;
+exports.pluginOptionApiKey = pluginOptionApiKey;
 exports.saveConfig = saveConfig;
 exports.clamp01 = clamp01;
 exports.thresholdFor = thresholdFor;
@@ -49,18 +50,50 @@ function loadConfig() {
         if (Number.isFinite(l))
             cfg.level = l;
     }
-    if (process.env.NYQUEST_API_KEY)
-        cfg.apiKey = process.env.NYQUEST_API_KEY;
+    // The API key. Since 0.6.0 it is the plugin's `api_key` option (userConfig, marked
+    // sensitive: Claude Code prompts for it and stores it with its own login, in the macOS
+    // Keychain or its protected credentials file elsewhere).
+    // Claude Code exports it to hook processes as CLAUDE_PLUGIN_OPTION_API_KEY, and .mcp.json
+    // substitutes it into the MCP server's environment under the same name. A key saved in
+    // config.json by configure(apiKey=...) is used when the option is empty.
+    //
+    // NYQUEST_API_KEY is deliberately not read any more. The plugin directory holds a plugin
+    // that takes a credential already present in the user's environment and sends it to a
+    // server, and asks for it through userConfig instead, which is what this is.
+    cfg.fileApiKey = typeof cfg.apiKey === "string" && cfg.apiKey ? cfg.apiKey : undefined;
+    cfg.apiKey = cfg.fileApiKey;
+    cfg.apiKeySource = cfg.fileApiKey ? "file" : undefined;
+    const option = pluginOptionApiKey();
+    if (option) {
+        cfg.apiKey = option;
+        cfg.apiKeySource = "plugin";
+    }
     cfg.level = clamp01(cfg.level);
     if (typeof cfg.minSavingTokens !== "number" || !Number.isFinite(cfg.minSavingTokens) || cfg.minSavingTokens < 0)
         cfg.minSavingTokens = exports.DEFAULTS.minSavingTokens;
     return cfg;
 }
+/**
+ * The plugin option's value, or undefined when it is unset. An option left empty arrives as
+ * "", and a client too old to substitute `${user_config.api_key}` in .mcp.json passes the
+ * placeholder through verbatim; neither is a key.
+ */
+function pluginOptionApiKey() {
+    const v = (process.env.CLAUDE_PLUGIN_OPTION_API_KEY || "").trim();
+    if (!v || v.includes("${"))
+        return undefined;
+    return v;
+}
 function saveConfig(cfg) {
-    const { apiKey, ...rest } = cfg;
+    // Only the key that came from this file goes back into it. The key in effect may be the
+    // plugin option, which Claude Code keeps with its own login, and writing that into a
+    // plain file would undo the point of it. Until 0.6.0 this wrote the effective key, so any
+    // save (a level change, or the website's level winning a sync) copied a NYQUEST_API_KEY
+    // from the environment into config.json.
+    const { apiKey, apiKeySource, fileApiKey, ...rest } = cfg;
     const out = { ...rest };
-    if (apiKey)
-        out.apiKey = apiKey;
+    if (fileApiKey)
+        out.apiKey = fileApiKey;
     (0, fsutil_1.writeJsonAtomic)(configPath(), out, 2);
 }
 function clamp01(n) {

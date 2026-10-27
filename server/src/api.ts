@@ -42,6 +42,13 @@ export function fullMode(cfg: Config = loadConfig()): boolean {
   return Boolean(cfg.apiKey && cfg.apiKey.startsWith("nq-v1-"));
 }
 
+/** Where the key in effect comes from, in words, for status lines. Never the key itself. */
+export function keySource(cfg: Config): string {
+  if (!cfg.apiKey) return "no API key";
+  const where = cfg.apiKeySource === "plugin" ? "the plugin configuration" : "~/.nyquest/config.json";
+  return fullMode(cfg) ? `key from ${where}` : `the API key in ${where} does not start with nq-v1-`;
+}
+
 export interface CondenseResult {
   digest: string;
   original_tokens: number;

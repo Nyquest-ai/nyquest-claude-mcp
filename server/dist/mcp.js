@@ -63,7 +63,7 @@ reg("recall", {
         mode = "ask";
         const cfg = (0, config_1.loadConfig)();
         if (!(0, api_1.fullMode)(cfg)) {
-            out = `recall(ask=...) needs Nyquest full mode: set an API key with configure(apiKey="nq-v1-...") (free, from app.nyquest.ai). Meanwhile use lines= or grep=. The output has ${all.length} lines.`;
+            out = `recall(ask=...) needs Nyquest full mode, which takes a free API key from app.nyquest.ai (/nyquest:setup shows how to add it). Meanwhile use lines= or grep=. The output has ${all.length} lines.`;
         }
         else if (!(0, config_1.remoteEligible)(loc.entry.tool, cfg)) {
             out = `recall(ask=...) is not available for output parked from ${loc.entry.tool}: that text stays on this machine. Use lines= or grep= (the output has ${all.length} lines), or opt the tool in with configure(remoteTool="${loc.entry.tool}", remoteEnabled=true).`;
@@ -227,7 +227,7 @@ reg("savings", { description: "Show what Nyquest has kept out of the context thi
     const size = (0, store_1.storeSize)();
     const byTool = Object.entries(s.byTool).map(([t, v]) => `  ${t}: ${v.parks} parked, ~${(0, tokens_1.fmt)((0, tokens_1.estimateTokens)(v.chars))} tokens`).join("\n");
     const lines = [
-        `Nyquest context manager ${version_1.VERSION} — ${(0, api_1.fullMode)(cfg) ? "full" : "local"} mode, level ${cfg.level}, enabled=${cfg.enabled}`,
+        `Nyquest context manager ${version_1.VERSION} — ${(0, api_1.fullMode)(cfg) ? "full" : "local"} mode (${(0, api_1.keySource)(cfg)}), level ${cfg.level}, enabled=${cfg.enabled}`,
         `Parked: ${s.parks} results (~${(0, tokens_1.fmt)((0, tokens_1.estimateTokens)(s.charsParked))} tokens) replaced by digests (~${(0, tokens_1.fmt)((0, tokens_1.estimateTokens)(s.charsDigest))} tokens).`,
         `Recalls: ${s.recalls} (~${(0, tokens_1.fmt)((0, tokens_1.estimateTokens)(s.charsRecalled))} tokens brought back).`,
         `Estimated tokens kept out of the context: ~${(0, tokens_1.fmt)(s.tokensSavedOnce)} once, and ~${(0, tokens_1.fmt)(s.tokensSavedPerTurn)} avoided on every later turn. Estimates use ${3.9} chars/token; real numbers come from /cost.`,
@@ -254,11 +254,11 @@ reg("configure", {
             toolEnabled: { type: "boolean" },
             remoteTool: { type: "string", description: "Tool name whose prose may (true) or may never (false) be sent to Nyquest for condensation and recall(ask=...) in full mode. By default only WebFetch, WebSearch, Agent and digest_url may." },
             remoteEnabled: { type: "boolean" },
-            apiKey: { type: "string", description: "Nyquest API key (nq-v1-...) to enable full mode; empty string removes it" },
+            apiKey: { type: "string", description: "Nyquest API key (nq-v1-...) to save in ~/.nyquest/config.json, enabling full mode; empty string removes the saved key. A key set in the plugin's own configuration (/plugin configure nyquest), which Claude Code stores with its own login, takes precedence." },
         },
     },
 }, async ({ level, enabled, showSavings, tool, toolEnabled, remoteTool, remoteEnabled, apiKey }) => {
-    const cfg = (0, config_1.loadConfig)();
+    let cfg = (0, config_1.loadConfig)();
     if (level !== undefined) {
         cfg.level = (0, config_1.clamp01)(level);
         cfg.levelUpdatedAt = new Date().toISOString();
@@ -271,19 +271,20 @@ reg("configure", {
         cfg.tools[tool] = toolEnabled ?? true;
     if (remoteTool)
         cfg.remoteTools[remoteTool] = remoteEnabled ?? true;
-    if (apiKey !== undefined) {
-        if (apiKey)
-            cfg.apiKey = apiKey;
-        else
-            delete cfg.apiKey;
-    }
+    // Only the saved key changes here; the plugin option belongs to Claude Code.
+    if (apiKey !== undefined)
+        cfg.fileApiKey = apiKey.trim() || undefined;
     (0, config_1.saveConfig)(cfg);
+    cfg = (0, config_1.loadConfig)(); // the key in effect after the change
     // Keep the website's Settings → Claude Code slider in step (full mode only, fail-open).
     let synced = "";
     if (level !== undefined && (0, api_1.fullMode)(cfg)) {
         const r = await (0, api_1.putSettings)(cfg.level, cfg);
         synced = r ? " Level saved to your Nyquest account too." : " (Could not reach Nyquest to sync the level; it will sync at the next session start.)";
     }
-    return text(`Nyquest: enabled=${cfg.enabled}, level=${cfg.level} (park results over ~${(0, tokens_1.fmt)((0, tokens_1.estimateTokens)((0, config_1.thresholdFor)(cfg.level)))} tokens), showSavings=${cfg.showSavings}, mode=${(0, api_1.fullMode)(cfg) ? "full" : "local"}, tool overrides=${JSON.stringify(cfg.tools)}, remote overrides=${JSON.stringify(cfg.remoteTools)}. Hook changes apply to the next tool call.${synced}`);
+    const precedence = apiKey !== undefined && cfg.apiKeySource === "plugin"
+        ? " The key in the plugin configuration takes precedence over the saved one; change or clear it with /plugin configure nyquest."
+        : "";
+    return text(`Nyquest: enabled=${cfg.enabled}, level=${cfg.level} (park results over ~${(0, tokens_1.fmt)((0, tokens_1.estimateTokens)((0, config_1.thresholdFor)(cfg.level)))} tokens), showSavings=${cfg.showSavings}, mode=${(0, api_1.fullMode)(cfg) ? "full" : "local"} (${(0, api_1.keySource)(cfg)}), tool overrides=${JSON.stringify(cfg.tools)}, remote overrides=${JSON.stringify(cfg.remoteTools)}. Hook changes apply to the next tool call.${synced}${precedence}`);
 });
 (0, stdio_1.serve)({ name: "nyquest", version: version_1.VERSION }, TOOLS);

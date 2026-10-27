@@ -226,7 +226,9 @@ async function sessionStart(input, cfg) {
     const prior = s.parks ? ` This session so far: ${s.parks} parked, ${s.recalls} recalls.` : "";
     if (!cfg.enabled)
         return `Nyquest context manager ${version_1.VERSION}: OFF (NYQUEST_COMPRESS=off or disabled in ~/.nyquest/config.json). Say "turn Nyquest on" to re-enable.${update}`;
-    const hint = mode === "local" ? " Full mode (free, adds platform condensation and recall(ask=...)): /nyquest:setup." : "";
+    const hint = mode === "full" ? ""
+        : cfg.apiKey ? ` Full mode is off: ${(0, api_1.keySource)(cfg)} (/nyquest:setup).`
+            : " Full mode (free, adds platform condensation and recall(ask=...)): /nyquest:setup.";
     return `Nyquest context manager ${version_1.VERSION}: ${mode} mode, level ${cfg.level} (/nyquest:level to change), results over ~${(0, tokens_1.fmt)((0, tokens_1.estimateTokens)((0, config_1.thresholdFor)(cfg.level)))} tokens are parked with a digest; use the nyquest recall tool for exact text. Store: ${size.sessions} sessions, ${(0, tokens_1.fmt)(Math.round(size.bytes / 1024))} KB${removed ? `, purged ${removed} expired` : ""}.${prior}${synced}${update}${hint}`;
 }
 async function main() {

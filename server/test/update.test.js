@@ -97,7 +97,7 @@ test("full mode: the platform's latest_version reaches the session line", async 
   });
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
   try {
-    const out = await runSessionStart({ CLAUDE_CONFIG_DIR: fakeConfigDir(lib.VERSION), NYQUEST_API_KEY: KEY, NYQUEST_API_BASE: `http://127.0.0.1:${server.address().port}` });
+    const out = await runSessionStart({ CLAUDE_CONFIG_DIR: fakeConfigDir(lib.VERSION), CLAUDE_PLUGIN_OPTION_API_KEY: KEY, NYQUEST_API_BASE: `http://127.0.0.1:${server.address().port}` });
     assert.ok(out.systemMessage.startsWith(`Nyquest context manager ${require("../dist/lib.js").VERSION}: full mode`), out.systemMessage);
     assert.ok(out.systemMessage.includes("Nyquest 9.9.10 is available"), out.systemMessage);
     assert.ok(out.systemMessage.includes("/plugin marketplace update nyquest"), out.systemMessage);

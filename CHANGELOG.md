@@ -1,5 +1,53 @@
 # Changelog
 
+## 0.6.0 (2026-10-27)
+
+The API key moves into Claude Code's own plugin configuration, and the shipped code is plain
+compiled TypeScript instead of a bundle. Both follow the Claude plugin directory's rules.
+
+### The API key is a plugin option
+
+- The plugin declares one `userConfig` option, `api_key`, marked `sensitive`. Set it with
+  `/plugin configure nyquest` in a terminal session, the gear on the plugin's row in VS Code's
+  Manage plugins, or `claude plugin configure <id> --values-stdin` from a shell. Claude Code
+  stores it with its own login (the macOS Keychain, or its protected credentials file
+  elsewhere), hands it to the hooks as `CLAUDE_PLUGIN_OPTION_API_KEY`, and `.mcp.json`
+  substitutes it into the MCP server's environment under the same name. Left empty, which is
+  the default, the plugin stays in local mode.
+- A key saved in `~/.nyquest/config.json` by `configure(apiKey=...)` keeps working and is used
+  when the option is empty. When both are set the option wins, and `configure` says so. The
+  saved key remains the route where `/plugin` is not available, such as the desktop app.
+- **`NYQUEST_API_KEY` is no longer read.** The directory holds a plugin that takes a
+  credential already present in the user's environment and sends it to a server, and asks
+  for it through `userConfig` instead. Move a key kept there into the plugin configuration.
+- Fixed: saving the config wrote the key in effect rather than the one read from the file.
+  Any save, including the website's level winning a sync at session start, so copied a
+  `NYQUEST_API_KEY` from the environment into `config.json` in plain text (reproduced against
+  the 0.5.0 build). Only the file's own key is ever written back now, and a test drives the
+  sync path end to end.
+- `/nyquest:savings`, `configure`, and the session-start line in local mode say where the key
+  in effect comes from, or that it does not start with `nq-v1-`. Never the key itself.
+- Checked with Claude Code 2.1.308 in a throwaway configuration: a key saved with
+  `claude plugin configure --values-stdin` reached both the SessionStart hook (full mode,
+  authenticated against a fake platform) and the MCP server, and its text appeared in no file
+  but Claude Code's own credentials file. A fresh install with the option never set connects
+  the MCP server with all six tools, in local mode, with no network calls.
+- The requirement stays Claude Code 2.1.121: plugin options exist since 2.1.83, and 2.1.119
+  fixed MCP servers failing when `${user_config.*}` names an optional option left blank.
+
+### Readable shipped code
+
+- `server/dist` is plain `tsc` output, one file per source file with its comments, instead of
+  three esbuild bundles. The directory holds code its scan cannot read ("commit readable
+  source instead of compiled, packed, or minified code"), and a bundle reads as packed.
+  20 files, 108 KB (was 3 files, 132 KB). esbuild is no longer a dev dependency.
+- The version is read at runtime from `server/package.json` instead of being injected by the
+  bundler.
+- The PostToolUse hook costs 3 to 4 ms more per call (median 41 to 45 ms over 25 runs); Node's
+  own startup dominates either way.
+- CI's drift check also fails on a built file that is not committed.
+- 54 tests (was 47).
+
 ## 0.5.0 (2026-10-12)
 
 No third-party dependencies, and the retention fix that was staged as 0.4.1.

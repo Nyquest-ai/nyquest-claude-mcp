@@ -106,18 +106,33 @@ or say "turn Nyquest off" (which calls `configure(enabled=false)`).
 
 ### API key: turn on full mode
 
-Full mode is free and optional. It adds platform condensation for prose results,
-`recall(ask="...")` answers, `digest_url`, and account-level savings totals.
+Full mode is free and optional. It adds platform condensation for prose results (web
+pages from `digest_url` included), `recall(ask="...")` answers, and account-level savings
+totals.
 
 1. Sign in at [app.nyquest.ai](https://app.nyquest.ai) and create an API key. It starts with `nq-v1-`.
-2. In Claude Code run `/nyquest:setup` and paste the key when asked, or say
-   "set my Nyquest API key to nq-v1-…". The next session-start line reads **full mode**.
-3. To leave full mode, say "remove my Nyquest API key".
+2. In a terminal session, run `/plugin configure nyquest` and paste the key into the masked
+   field. Claude Code keeps it where it keeps its own login (the macOS Keychain, or its
+   protected credentials file elsewhere), not in a settings file, and hands it only to this
+   plugin. In VS Code, the gear on the plugin's row in Manage plugins does the same. Claude
+   Code may also ask for it when the plugin is first enabled; leaving it empty keeps local mode.
+3. Restart Claude Code. The session-start line reads **full mode**.
 
-Prefer not to paste a key into a chat transcript? Either of these works without the chat:
+To leave full mode, clear the key with `/plugin configure nyquest` and restart.
 
-- environment variable: `NYQUEST_API_KEY=nq-v1-...`
-- config file: add `"apiKey": "nq-v1-..."` to `~/.nyquest/config.json`
+Where `/plugin` is not available, such as the desktop app, either of these works instead:
+
+- from a shell, with Claude Code 2.1.285 or newer: put `{"api_key": "nq-v1-..."}` in a file
+  and run `claude plugin configure nyquest@nyquest --values-stdin < that-file` (use the id
+  `claude plugin list` shows), then delete the file
+- in a session: run `/nyquest:setup nq-v1-...` or say "set my Nyquest API key to nq-v1-…".
+  This saves the key in plain text in `~/.nyquest/config.json`, and passes it through the
+  chat transcript. Say "remove my Nyquest API key" to delete it again.
+
+A key in the plugin configuration takes precedence over one saved in `config.json`.
+`/nyquest:savings` says which one is in effect, never the key itself. The `NYQUEST_API_KEY`
+environment variable is no longer read as of 0.6.0; move a key kept there into the plugin
+configuration.
 
 ### Check the state
 

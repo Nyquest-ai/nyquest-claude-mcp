@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.lastError = exports.RE_SECRET = exports.DEFAULT_BASE = void 0;
 exports.redact = redact;
 exports.fullMode = fullMode;
+exports.keySource = keySource;
 exports.condense = condense;
 exports.ask = ask;
 exports.reportParks = reportParks;
@@ -47,6 +48,13 @@ function redact(text) {
 }
 function fullMode(cfg = (0, config_1.loadConfig)()) {
     return Boolean(cfg.apiKey && cfg.apiKey.startsWith("nq-v1-"));
+}
+/** Where the key in effect comes from, in words, for status lines. Never the key itself. */
+function keySource(cfg) {
+    if (!cfg.apiKey)
+        return "no API key";
+    const where = cfg.apiKeySource === "plugin" ? "the plugin configuration" : "~/.nyquest/config.json";
+    return fullMode(cfg) ? `key from ${where}` : `the API key in ${where} does not start with nq-v1-`;
 }
 async function post(cfg, path, body, timeoutMs) {
     exports.lastError = undefined;

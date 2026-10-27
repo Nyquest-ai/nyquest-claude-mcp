@@ -25,11 +25,18 @@ leaves the machine below.
 ```
 
 Requires Node 18+ and Claude Code 2.1.121 or newer. Start a new session; the first line
-reads `Nyquest context manager: local mode, level 0.5 ...`.
+reads `Nyquest context manager 0.6.0: local mode, level 0.5 ...`.
 
 Local mode needs no account and makes no network calls. For full mode, a test API key
-with sample account data accompanies the directory submission; anyone else can create a
-free account at https://app.nyquest.ai and run `/nyquest:setup`.
+with sample account data accompanies the directory submission. Enter it with
+`/plugin configure nyquest` (the plugin's one `userConfig` option, `api_key`, marked
+`sensitive`) and restart the session; the first line then reads `full mode`. Anyone else can
+create a free account at https://app.nyquest.ai and run `/nyquest:setup`.
+
+The key reaches the plugin only through Claude Code: hooks receive it as
+`CLAUDE_PLUGIN_OPTION_API_KEY`, and `.mcp.json` substitutes `${user_config.api_key}` into the
+MCP server's environment under the same name. The plugin reads no other credential from the
+user's environment, and it never writes the option's key to disk.
 
 ## Example 1: local park and exact recall
 

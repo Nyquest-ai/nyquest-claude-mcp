@@ -62,7 +62,7 @@ function runHook(input, env) {
 }
 
 function fullEnv(port, extra = {}) {
-  return { NYQUEST_API_KEY: KEY, NYQUEST_API_BASE: `http://127.0.0.1:${port}`, NYQUEST_LEVEL: "0.8", ...extra };
+  return { CLAUDE_PLUGIN_OPTION_API_KEY: KEY, NYQUEST_API_BASE: `http://127.0.0.1:${port}`, NYQUEST_LEVEL: "0.8", ...extra };
 }
 
 /** A markdown runbook: headings plus paragraphs. Classifies as prose from any tool. */

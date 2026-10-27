@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.PLUGIN_NAME = exports.compareVersions = exports.catalogVersions = exports.updateAvailable = exports.VERSION = exports.readJsonFile = exports.writeJsonAtomic = exports.writeFileAtomic = exports.DEFAULT_PERSIST_LIMIT = exports.bashPersistLimit = exports.persistLimit = exports.fullMode = exports.redact = exports.handlePostToolUse = exports.extract = exports.estimateTokens = exports.summarize = exports.loadLedger = exports.storeSize = exports.trimLog = exports.purgeLedgers = exports.purgeOld = exports.listSession = exports.bumpRecall = exports.readParked = exports.locate = exports.park = exports.REMOTE_OK = exports.NEVER_PARK = exports.DEFAULTS = exports.remoteEligible = exports.toolEligible = exports.codeParkingEnabled = exports.thresholdFor = exports.loadConfig = exports.guarantee = exports.digestFor = exports.footer = exports.makeDigest = exports.digestProse = exports.digestCode = exports.digestData = exports.errKey = exports.ERR_RE = exports.digestLog = exports.classify = void 0;
+exports.PLUGIN_NAME = exports.compareVersions = exports.catalogVersions = exports.updateAvailable = exports.VERSION = exports.readJsonFile = exports.writeJsonAtomic = exports.writeFileAtomic = exports.DEFAULT_PERSIST_LIMIT = exports.bashPersistLimit = exports.persistLimit = exports.keySource = exports.fullMode = exports.redact = exports.handlePostToolUse = exports.extract = exports.estimateTokens = exports.summarize = exports.loadLedger = exports.storeSize = exports.trimLog = exports.purgeLedgers = exports.purgeOld = exports.listSession = exports.bumpRecall = exports.readParked = exports.locate = exports.park = exports.REMOTE_OK = exports.NEVER_PARK = exports.DEFAULTS = exports.remoteEligible = exports.toolEligible = exports.codeParkingEnabled = exports.thresholdFor = exports.pluginOptionApiKey = exports.saveConfig = exports.loadConfig = exports.guarantee = exports.digestFor = exports.footer = exports.makeDigest = exports.digestProse = exports.digestCode = exports.digestData = exports.errKey = exports.ERR_RE = exports.digestLog = exports.classify = void 0;
 // Internal API surface for tests and validation scripts.
 var classify_1 = require("./classify");
 Object.defineProperty(exports, "classify", { enumerable: true, get: function () { return classify_1.classify; } });
@@ -21,6 +21,8 @@ Object.defineProperty(exports, "digestFor", { enumerable: true, get: function ()
 Object.defineProperty(exports, "guarantee", { enumerable: true, get: function () { return digest_1.guarantee; } });
 var config_1 = require("./config");
 Object.defineProperty(exports, "loadConfig", { enumerable: true, get: function () { return config_1.loadConfig; } });
+Object.defineProperty(exports, "saveConfig", { enumerable: true, get: function () { return config_1.saveConfig; } });
+Object.defineProperty(exports, "pluginOptionApiKey", { enumerable: true, get: function () { return config_1.pluginOptionApiKey; } });
 Object.defineProperty(exports, "thresholdFor", { enumerable: true, get: function () { return config_1.thresholdFor; } });
 Object.defineProperty(exports, "codeParkingEnabled", { enumerable: true, get: function () { return config_1.codeParkingEnabled; } });
 Object.defineProperty(exports, "toolEligible", { enumerable: true, get: function () { return config_1.toolEligible; } });
@@ -49,6 +51,7 @@ Object.defineProperty(exports, "handlePostToolUse", { enumerable: true, get: fun
 var api_1 = require("./api");
 Object.defineProperty(exports, "redact", { enumerable: true, get: function () { return api_1.redact; } });
 Object.defineProperty(exports, "fullMode", { enumerable: true, get: function () { return api_1.fullMode; } });
+Object.defineProperty(exports, "keySource", { enumerable: true, get: function () { return api_1.keySource; } });
 var settings_1 = require("./settings");
 Object.defineProperty(exports, "persistLimit", { enumerable: true, get: function () { return settings_1.persistLimit; } });
 Object.defineProperty(exports, "bashPersistLimit", { enumerable: true, get: function () { return settings_1.bashPersistLimit; } });

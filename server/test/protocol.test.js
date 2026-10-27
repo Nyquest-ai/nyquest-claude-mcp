@@ -16,7 +16,7 @@ function talk(frames, env = {}, preload) {
   return new Promise((resolve, reject) => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "nyquest-proto-"));
     const child = spawn(process.execPath, preload ? ["-r", preload, MCP] : [MCP], {
-      env: { ...process.env, NYQUEST_HOME: home, NYQUEST_API_KEY: "", CLAUDE_SESSION_ID: "protocol-test", ...env },
+      env: { ...process.env, NYQUEST_HOME: home, CLAUDE_PLUGIN_OPTION_API_KEY: "", CLAUDE_SESSION_ID: "protocol-test", ...env },
       stdio: ["pipe", "pipe", "pipe"],
     });
     let out = "", err = "";
@@ -164,7 +164,7 @@ test("after a full-mode network call the server ends by draining, never by proce
     const key = ["nq", "v1", "protocol", "test", "0".repeat(24)].join("-");
     const { messages, stderr, code } = await talk(
       [{ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "savings", arguments: {} } }],
-      { NYQUEST_API_KEY: key, NYQUEST_API_BASE: `http://127.0.0.1:${server.address().port}` },
+      { CLAUDE_PLUGIN_OPTION_API_KEY: key, NYQUEST_API_BASE: `http://127.0.0.1:${server.address().port}` },
       path.join(__dirname, "fixtures", "exit-spy.js"),
     );
     assert.match(byId(messages, 1).result.content[0].text, /Nyquest account \(30 days/, "the network path really ran");
