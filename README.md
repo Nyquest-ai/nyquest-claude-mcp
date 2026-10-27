@@ -190,7 +190,7 @@ counts, never content. Policies: [privacy](https://nyquest.ai/privacy), [terms](
 
 ```bash
 cd server
-npm run build          # esbuild -> dist/hook.js, dist/mcp.js, dist/lib.js (runs check-version first)
+npm run build          # tsc -> dist/, one readable .js per source file (runs check-version first)
 npm test               # node --test: digests, classifier, hook, fake-platform full mode, store races
 npm run typecheck
 npm run check-version  # server/package.json must equal .claude-plugin/plugin.json
@@ -198,7 +198,7 @@ node scripts/validate-corpus.js path/to/corpus.jsonl   # digest ratios and error
 ```
 
 CI runs the same steps on Ubuntu and Windows with Node 20 and 22, and fails when the
-committed `server/dist` differs from a fresh build. To release: bump the version in
+committed `server/dist` differs from a fresh build, including a file the build adds or drops. To release: bump the version in
 `.claude-plugin/plugin.json` and `server/package.json`, rebuild, commit, run
 `claude plugin tag --push`, then bump the entry in the marketplace repo to match. See
 [CHANGELOG.md](CHANGELOG.md) for what changed and [docs/REVIEWER-KIT.md](docs/REVIEWER-KIT.md)

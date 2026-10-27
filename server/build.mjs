@@ -1,22 +1,18 @@
-import { build } from "esbuild";
-import { readFileSync } from "node:fs";
+// Build: plain `tsc` emit into dist/, one .js file per source file, comments kept.
+//
+// Until 0.5.0 this bundled src/{hook,mcp,lib}.ts into three files with esbuild. The Claude
+// plugin directory holds code its security scan cannot read ("commit readable source instead
+// of compiled, packed, or minified code"), and a bundle reads as packed. tsc only strips the
+// type annotations, so each file in dist/ is its source file, line for line, and a reviewer
+// can read either. The version is no longer injected: src/version.ts reads package.json.
+import { rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 
-// One version source: server/package.json (kept equal to .claude-plugin/plugin.json by
-// scripts/check-version.mjs). Injected as __NYQUEST_VERSION__, read by src/version.ts.
-const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8"));
+const here = fileURLToPath(new URL(".", import.meta.url));
+const require = createRequire(import.meta.url);
 
-const common = {
-  bundle: true,
-  platform: "node",
-  target: "node18",
-  format: "cjs",
-  sourcemap: false,
-  logLevel: "info",
-  define: { __NYQUEST_VERSION__: JSON.stringify(pkg.version) },
-};
-
-await Promise.all([
-  build({ ...common, entryPoints: ["src/hook.ts"], outfile: "dist/hook.js" }),
-  build({ ...common, entryPoints: ["src/mcp.ts"], outfile: "dist/mcp.js" }),
-  build({ ...common, entryPoints: ["src/lib.ts"], outfile: "dist/lib.js" }),
-]);
+// Start empty, so a file whose source was deleted or renamed cannot survive in dist/.
+rmSync(new URL("./dist", import.meta.url), { recursive: true, force: true });
+execFileSync(process.execPath, [require.resolve("typescript/bin/tsc"), "-p", "tsconfig.json"], { cwd: here, stdio: "inherit" });

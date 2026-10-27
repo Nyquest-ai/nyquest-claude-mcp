@@ -18,8 +18,8 @@ jobs:
       run:
         working-directory: server
     steps:
-      # The bundle in server/dist is committed with LF endings; keep the checkout byte-exact
-      # so the drift check below compares content, not line endings.
+      # The build output in server/dist is committed with LF endings; keep the checkout
+      # byte-exact so the drift check below compares content, not line endings.
       - run: git config --global core.autocrlf false
         working-directory: .
       - uses: actions/checkout@v4
@@ -33,8 +33,14 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
-      - name: Committed bundle must match the source
-        run: git diff --exit-code --ignore-cr-at-eol -- dist
+      # dist/ is one file per source file now, so a new source file must also be committed
+      # as output; git diff alone does not see untracked files.
+      - name: Committed dist must match the source
+        shell: bash
+        run: |
+          git diff --exit-code --ignore-cr-at-eol -- dist
+          untracked="$(git ls-files --others --exclude-standard -- dist)"
+          if [ -n "$untracked" ]; then echo "built but not committed: $untracked"; exit 1; fi
 
   validate-manifest:
     name: claude plugin validate

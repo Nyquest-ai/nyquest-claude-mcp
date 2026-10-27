@@ -4,10 +4,14 @@
     "module": "commonjs",
     "moduleResolution": "node",
     "strict": true,
-    "esModuleInterop": true,
     "skipLibCheck": true,
-    "noEmit": true,
-    "types": ["node"]
+    "types": ["node"],
+    "rootDir": "src",
+    "outDir": "dist",
+    "newLine": "lf",
+    "removeComments": false,
+    "sourceMap": false,
+    "declaration": false
   },
   "include": ["src/**/*.ts"]
 }

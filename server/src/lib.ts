@@ -1,4 +1,4 @@
-// Internal API bundle for tests and validation scripts.
+// Internal API surface for tests and validation scripts.
 export { classify } from "./classify";
 export { digestLog, ERR_RE, errKey } from "./digest/log";
 export { digestData } from "./digest/data";

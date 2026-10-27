@@ -1,5 +1,5 @@
 // Fails when server/package.json and .claude-plugin/plugin.json disagree on the version.
-// Runs before every build (npm prebuild) and in CI, so the bundle's injected version,
+// Runs before every build (npm prebuild) and in CI, so the version src/version.ts reads,
 // the MCP serverInfo, the user-agent strings and the manifest can never drift apart.
 import { readFileSync } from "node:fs";
 
