@@ -213,8 +213,9 @@ node scripts/validate-corpus.js path/to/corpus.jsonl   # digest ratios and error
 ```
 
 CI runs the same steps on Ubuntu and Windows with Node 20 and 22, and fails when the
-committed `server/dist` differs from a fresh build, including a file the build adds or drops. To release: bump the version in
-`.claude-plugin/plugin.json` and `server/package.json`, rebuild, commit, run
-`claude plugin tag --push`, then bump the entry in the marketplace repo to match. See
+committed `server/dist` differs from a fresh build, including a file the build adds or
+drops. To release: bump the version in `.claude-plugin/plugin.json` and
+`server/package.json`, rebuild, commit, run `claude plugin tag --push`, then bump the
+entry in the marketplace repo to match. See
 [CHANGELOG.md](CHANGELOG.md) for what changed and [docs/REVIEWER-KIT.md](docs/REVIEWER-KIT.md)
 for a guided evaluation.

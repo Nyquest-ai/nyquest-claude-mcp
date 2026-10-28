@@ -34,6 +34,11 @@ compiled TypeScript instead of a bundle. Both follow the Claude plugin directory
   the MCP server with all six tools, in local mode, with no network calls.
 - The requirement stays Claude Code 2.1.121: plugin options exist since 2.1.83, and 2.1.119
   fixed MCP servers failing when `${user_config.*}` names an optional option left blank.
+- `deploy/` is gone from the repo. It held two one-off scripts from the 0.3.0 platform
+  rollout: a smoke test that read `NYQUEST_API_KEY` from the environment and sent it to the
+  platform with curl, and a server-side deploy that ran database migrations and restarted the
+  service. Neither was part of the plugin, nothing referenced them, and the first is the very
+  pattern this release removes from the plugin itself. They remain in the git history.
 
 ### Readable shipped code
 
