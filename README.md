@@ -147,7 +147,7 @@ slider under Settings → Claude Code plugin stays in step with `/nyquest:level`
 ### Updates
 
 The session-start line says when a newer version exists, for example
-`Nyquest 0.5.0 is available (this session runs 0.4.0): /plugin update nyquest@nyquest, then /reload-plugins`.
+`Nyquest 0.6.0 is available (this session runs 0.4.0): /plugin update nyquest@nyquest, then /reload-plugins`.
 The plugin never fetches anything to find out: it compares its own version with the marketplace
 catalog Claude Code keeps on disk, and in full mode with the latest version the platform reports
 in the settings response it already receives. Claude Code performs the update.

@@ -1,9 +1,11 @@
 # Changelog
 
-## 0.6.0 (2026-10-27)
+## 0.6.0 (2026-10-28)
 
 The API key moves into Claude Code's own plugin configuration, and the shipped code is plain
 compiled TypeScript instead of a bundle. Both follow the Claude plugin directory's rules.
+0.5.0 and 0.4.1 were never published separately, so coming from 0.4.0 this release also
+brings everything in their sections below.
 
 ### The API key is a plugin option
 
@@ -53,7 +55,7 @@ compiled TypeScript instead of a bundle. Both follow the Claude plugin directory
 - CI's drift check also fails on a built file that is not committed.
 - 54 tests (was 47).
 
-## 0.5.0 (2026-10-12)
+## 0.5.0 (2026-10-12, folded into 0.6.0; never published separately)
 
 No third-party dependencies, and the retention fix that was staged as 0.4.1.
 
